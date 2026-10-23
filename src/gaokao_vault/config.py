@@ -36,6 +36,7 @@ class CrawlConfig(BaseSettings):
     log_dir: str = "./crawl_data/logs"
     spider_timeout: int = 21600  # Per-spider timeout in seconds (6 hours)
     phase_timeout: int = 21600  # Per-phase timeout in seconds (6 hours)
+    phase_max_failure_ratio: float = 0.05  # Max failed/processed ratio per Phase 2 spider before Phase 3 is skipped
     heartbeat_interval: int = 120  # Heartbeat log interval in seconds
     school_major_min_ready_schools: int = 100
     school_major_min_ready_majors: int = 100

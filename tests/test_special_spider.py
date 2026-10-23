@@ -395,3 +395,27 @@ class _FakePool:
 
     def acquire(self):
         return _Acquire(self.conn)
+
+
+def test_process_special_item_passes_all_dedup_keys() -> None:
+    from gaokao_vault.pipeline.dedup import TABLE_MAP
+
+    spider = _make_spider()
+    item = {
+        "enrollment_type": "强基计划",
+        "school_id": None,
+        "school_code_raw": "92002",
+        "year": 2026,
+        "title": "国防科技大学2026年强基计划招生简章",
+        "source_section": "charter",
+        "detail_url": None,
+    }
+
+    with patch.object(spider, "process_item", new=AsyncMock(return_value="new")) as process_item:
+        asyncio.run(spider._process_special_item(item))
+
+    unique_keys = process_item.await_args.kwargs["unique_keys"]
+    _table, _clause, key_fields = TABLE_MAP["special_enrollments"]
+    assert set(key_fields) <= set(unique_keys)
+    assert unique_keys["school_code_raw"] == "92002"
+    assert unique_keys["source_section"] == "charter"

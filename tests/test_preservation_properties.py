@@ -398,6 +398,34 @@ class TestPhaseOrderingPreservation:
         assert failed == 2
         assert total == 3
 
+    def test_phase_summary_tolerates_failures_within_ratio(self):
+        from gaokao_vault.scheduler.orchestrator import Orchestrator
+
+        results = [
+            {"new": 2900, "updated": 0, "unchanged": 0, "failed": 12},
+            {"new": 0, "updated": 0, "unchanged": 1700, "failed": 0},
+        ]
+
+        stable, failed, total = Orchestrator._phase_summary(results, max_failure_ratio=0.05)
+
+        assert stable is True
+        assert failed == 0
+        assert total == 2
+
+    def test_phase_summary_rejects_failures_above_ratio_or_crash(self):
+        from gaokao_vault.scheduler.orchestrator import Orchestrator
+
+        results = [
+            {"new": 80, "updated": 0, "unchanged": 0, "failed": 20},
+            {"new": 0, "updated": 0, "unchanged": 0, "failed": 1},
+        ]
+
+        stable, failed, total = Orchestrator._phase_summary(results, max_failure_ratio=0.05)
+
+        assert stable is False
+        assert failed == 2
+        assert total == 2
+
     def test_run_independent_starts_all_valid_types_without_phase_timeout(self):
         from gaokao_vault.scheduler.orchestrator import Orchestrator
 

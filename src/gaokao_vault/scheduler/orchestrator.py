@@ -91,7 +91,7 @@ class Orchestrator:
 
         logger.info("=== Phase 2: Core entities ===")
         p2_results = await self._run_phase([t.value for t in PHASE2_TYPES])
-        stable, failed, total = self._phase_summary(p2_results)
+        stable, failed, total = self._phase_summary(p2_results, self.config.phase_max_failure_ratio)
         if not stable:
             logger.warning(
                 "Skipping Phase 3 because Phase 2 is not stable (failed=%d total=%d)",
@@ -269,15 +269,25 @@ class Orchestrator:
                 raise other_errors from None
 
     @staticmethod
-    def _phase_summary(results: list | None) -> tuple[bool, int, int]:
+    def _phase_summary(results: list | None, max_failure_ratio: float = 0.0) -> tuple[bool, int, int]:
+        """Count spiders whose item failure ratio exceeds ``max_failure_ratio``.
+
+        A crashed spider (exception / non-dict result) or one that processed
+        nothing but failures always counts as failed.
+        """
         if results is None:
             return False, 0, 0
 
-        failed = sum(
-            1
-            for result in results
-            if isinstance(result, Exception) or not isinstance(result, dict) or result.get("failed", 0) > 0
-        )
+        def _is_failed(result: Any) -> bool:
+            if not isinstance(result, dict):
+                return True
+            failed_items = result.get("failed", 0)
+            if failed_items <= 0:
+                return False
+            processed = failed_items + sum(result.get(k, 0) for k in ("new", "updated", "unchanged"))
+            return failed_items / processed > max_failure_ratio
+
+        failed = sum(1 for result in results if _is_failed(result))
         return failed == 0, failed, len(results)
 
     async def _run_phase(self, task_types: list[str]) -> list | None:
