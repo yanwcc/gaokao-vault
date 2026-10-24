@@ -397,3 +397,22 @@ def test_parse_school_list_carries_card_level_to_detail_item():
     ):
         items = asyncio.run(_collect(spider.parse(detail)))
     assert items[0]["level"] == "专科"
+
+
+def test_parse_uses_level_override_when_the_card_says_unknown():
+    spider = _make_school_spider()
+    response = _make_response(_list_html([("899", "测试大学", "北京")], levels={"测试大学": "未知"}), _LIST_URL)
+
+    with patch.object(spider, "_load_province_map", new=AsyncMock(return_value={"北京": 1})):
+        requests = asyncio.run(_collect(spider.parse_school_list(response)))
+    detail_request = next(request for request in requests if "schoolInfoMain--schId-" in request.url)
+    assert detail_request.meta["level"] is None
+
+    detail = _make_response(_DETAIL_HTML, detail_request.url, detail_request.meta)
+    with (
+        patch.dict("gaokao_vault.spiders.school_spider.LEVEL_OVERRIDES", {"测试大学": "本科"}),
+        patch.object(spider, "_resolve_province_id", new=AsyncMock(return_value=None)),
+        patch.object(spider, "process_item", new=AsyncMock(return_value="new")),
+    ):
+        items = asyncio.run(_collect(spider.parse(detail)))
+    assert items[0]["level"] == "本科"

@@ -22,6 +22,10 @@ NO_DETAIL_MARKER = "none"
 # Detail pages render a missing phone / website as "-".
 _EMPTY_PLACEHOLDERS = frozenset({"-", "--"})
 _HIDDEN_STYLE_PATTERN = re.compile(r"display\s*:\s*none", re.IGNORECASE)
+# Schools whose list card says "未知". The site tags every other 职业本科 university "本科" and keeps no
+# separate 职业本科 level, so these are aligned with them. Names cannot be used as a rule: some
+# "职业大学" (九江职业大学, 南通职业大学) are 专科.
+LEVEL_OVERRIDES = {"广西职业技术大学": "本科"}
 
 
 def card_level(school_card: Any) -> str | None:
@@ -350,7 +354,7 @@ class SchoolSpider(BaseGaokaoSpider):
             logger.warning("Failed to resolve province for schId=%s", sch_id, exc_info=True)
             detail_province_id = None
         data["province_id"] = detail_province_id or candidate_province_id
-        if level := response.request.meta.get("level"):
+        if level := response.request.meta.get("level") or LEVEL_OVERRIDES.get(name):
             data["level"] = level
 
         item = validate_item(SchoolItem, data)
