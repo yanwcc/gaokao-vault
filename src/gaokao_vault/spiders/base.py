@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any, ClassVar, cast
+from urllib.parse import urlsplit
 
 import asyncpg
 from scrapling.fetchers import AsyncStealthySession
@@ -14,6 +15,7 @@ from gaokao_vault.config import AppConfig, CrawlConfig, DatabaseConfig
 from gaokao_vault.db.connection import create_local_pool
 from gaokao_vault.pipeline.dedup import deduplicate_and_persist
 from gaokao_vault.pipeline.hasher import compute_content_hash
+from gaokao_vault.storage.raw_archive import RawArchive
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,9 @@ BLOCKED_CONTENT_PATTERNS = [
     "请稍后再试",
     "系统繁忙",
 ]
+# Exam authorities whose pages are the official record; other archived sources rank lower.
+_OFFICIAL_SOURCE_DOMAINS = frozenset({"gaokao.chsi.com.cn", "bm.chsi.com.cn", "www.sdzk.cn", "www.jleea.com.cn"})
+_ARCHIVE_META_TYPES = (str, int, float, bool)
 
 
 class BaseGaokaoSpider(Spider):
@@ -71,6 +76,9 @@ class BaseGaokaoSpider(Spider):
         self._last_heartbeat: float = time.monotonic()
         self._heartbeat_interval: int = config.heartbeat_interval if config else 120
         self._items_since_heartbeat: int = 0
+
+        self._raw_archive = RawArchive(config.raw_dir) if config and config.archive_raw else None
+        self._data_source_ids: dict[str, int] = {}
 
         if config:
             self.concurrent_requests = config.concurrency
@@ -176,12 +184,77 @@ class BaseGaokaoSpider(Spider):
         )
 
     async def is_blocked(self, response: Response) -> bool:
-        """Detect anti-bot blocking from gaokao.chsi.com.cn."""
+        """Detect anti-bot blocking from gaokao.chsi.com.cn.
+
+        This is the engine's only hook that sees every response before its callback, so
+        responses that pass are archived here.
+        """
         if response.status in BLOCKED_STATUS_CODES:
             return True
 
         body = response.body.decode("utf-8", errors="ignore").lower()
-        return any(pattern in body for pattern in BLOCKED_CONTENT_PATTERNS)
+        if any(pattern in body for pattern in BLOCKED_CONTENT_PATTERNS):
+            return True
+
+        await self._archive_response(response)
+        return False
+
+    async def _archive_response(self, response: Response) -> None:
+        if self._raw_archive is None or not response.body:
+            return
+        from gaokao_vault.db.queries.sources import upsert_source_document
+
+        request = response.request
+        headers = {str(k).lower(): v for k, v in (getattr(response, "headers", None) or {}).items()}
+        content_type = headers.get("content-type")
+        try:
+            content_hash, storage_key = await self._raw_archive.save(
+                response.body, url=response.url, content_type=content_type
+            )
+            pool = await self._get_pool()
+            async with pool.acquire() as conn:
+                await upsert_source_document(
+                    conn,
+                    {
+                        "data_source_id": await self._data_source_id(conn, response.url),
+                        "source_url": response.url,
+                        "content_hash": content_hash,
+                        "content_type": content_type,
+                        "storage_key": storage_key,
+                        "parser_name": self.name,
+                        "metadata": {
+                            "status": response.status,
+                            "request_url": request.url if request else None,
+                            "method": request._session_kwargs.get("method", "GET") if request else None,
+                            "crawl_task_id": self.crawl_task_id,
+                            "meta": {
+                                key: value
+                                for key, value in (request.meta if request else {}).items()
+                                if isinstance(value, _ARCHIVE_META_TYPES)
+                            },
+                        },
+                    },
+                )
+        except Exception:
+            logger.warning("Failed to archive raw response for %s", response.url, exc_info=True)
+
+    async def _data_source_id(self, conn, url: str) -> int:
+        from gaokao_vault.db.queries.sources import upsert_data_source
+
+        parts = urlsplit(url)
+        domain = parts.hostname or "unknown"
+        if domain not in self._data_source_ids:
+            self._data_source_ids[domain] = await upsert_data_source(
+                conn,
+                {
+                    "source_code": domain,
+                    "source_name": domain,
+                    "source_type": "website",
+                    "authority_level": 100 if domain in _OFFICIAL_SOURCE_DOMAINS else 50,
+                    "base_url": f"{parts.scheme}://{domain}",
+                },
+            )
+        return self._data_source_ids[domain]
 
     async def retry_blocked_request(self, request: Request, response: Response) -> Request:
         """Switch to stealth session on block detection."""

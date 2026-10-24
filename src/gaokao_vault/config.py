@@ -34,6 +34,8 @@ class CrawlConfig(BaseSettings):
     rs_wait_ms: int = 10000  # Wait time (ms) for RS anti-bot JS challenge
     browser_timeout_ms: int = 120000  # Navigation timeout (ms) for stealth browser requests
     log_dir: str = "./crawl_data/logs"
+    archive_raw: bool = True  # Keep every fetched response under raw_dir, indexed in source_documents
+    raw_dir: str = "./crawl_data/raw"
     spider_timeout: int = 21600  # Per-spider timeout in seconds (6 hours)
     phase_timeout: int = 21600  # Per-phase timeout in seconds (6 hours)
     phase_max_failure_ratio: float = 0.05  # Max failed/processed ratio per Phase 2 spider before Phase 3 is skipped

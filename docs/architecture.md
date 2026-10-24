@@ -82,6 +82,19 @@ src/gaokao_vault/
 
 `crawl_snapshots` 表记录完整变更历史，支持数据回溯。
 
+## 原始数据存档
+
+所有爬虫抓到且未被判定为封禁的响应，都会在 `BaseGaokaoSpider.is_blocked()` 中自动存档
+（这是引擎唯一能看到每个响应的钩子），解析规则出错时可以离线重新解析，不必重新抓取：
+
+- 内容 gzip 后按 SHA-256 存到 `crawl_data/raw/<域名>/<hash[:2]>/<hash><扩展名>.gz`，相同内容只存一份；
+- 索引写入 `source_documents`（URL、抓取时间、内容哈希、`storage_key`、爬虫名、请求 meta 中的简单字段），
+  来源域名登记在 `data_sources`（考试院等官方域名 `authority_level=100`）；
+- 浏览器会话存的是 JS 执行后的页面（即解析器实际看到的 DOM），Excel 等附件存原始字节；
+- `GAOKAO_CRAWL__ARCHIVE_RAW=false` 关闭，`GAOKAO_CRAWL__RAW_DIR` 修改目录；存档失败只记告警，不影响抓取。
+
+读取：`RawArchive("crawl_data/raw").load(storage_key)`。
+
 ## 反爬策略
 
 | 层级 | 机制 |
