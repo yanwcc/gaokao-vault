@@ -58,6 +58,7 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
         super().__init__(*args, **kwargs)
         self._province_id: int | None = None
         self._school_ids: dict[str, int] | None = None
+        self._school_levels: dict[int, str] = {}
 
     def configure_sessions(self, manager) -> None:
         manager.add("http", FetcherSession())
@@ -171,7 +172,7 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
         province_id = await self._get_province_id()
         school_ids = await self._get_school_ids()
         for record in records:
-            data = self._admission_item_data(record, meta, province_id, school_ids)
+            data = self._admission_item_data(record, meta, province_id, school_ids, self._school_levels)
             item = validate_item(ProvincialAdmissionRecordItem, data)
             if item is None:
                 continue
@@ -196,14 +197,19 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
         meta: dict[str, Any],
         province_id: int,
         school_ids: dict[str, int],
+        school_levels: dict[int, str] | None = None,
     ) -> dict[str, Any]:
+        school_id = school_ids.get(_normalize_school_name(record.school_name_raw))
+        school_level = (school_levels or {}).get(school_id) if school_id is not None else None
         return {
             "province_id": province_id,
             "year": meta["year"],
             "batch": ADMISSION_BATCH,
             "admission_round": meta["admission_round"],
-            "education_level": record.education_level,
-            "school_id": school_ids.get(_normalize_school_name(record.school_name_raw)),
+            # The round-1 table has no level column; fall back to the linked school's level. The row's own
+            # level wins when present: round-2 tables list 专科 programmes run by 本科 schools.
+            "education_level": record.education_level or school_level,
+            "school_id": school_id,
             "school_code_raw": record.school_code_raw,
             "school_name_raw": record.school_name_raw,
             "major_code_raw": record.major_code_raw,
@@ -275,6 +281,7 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
     async def _get_school_ids(self) -> dict[str, int]:
         if self._school_ids is None:
             async with (await self._get_pool()).acquire() as conn:
-                rows = await conn.fetch("SELECT id, name FROM schools")
+                rows = await conn.fetch("SELECT id, name, level FROM schools")
             self._school_ids = {_normalize_school_name(row["name"]): int(row["id"]) for row in rows}
+            self._school_levels = {int(row["id"]): row["level"] for row in rows if row["level"]}
         return self._school_ids

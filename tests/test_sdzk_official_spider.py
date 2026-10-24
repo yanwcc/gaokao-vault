@@ -124,3 +124,49 @@ def test_admission_item_data_links_school_with_normalised_brackets():
     assert data["program_type"] == "专项计划"
     assert data["source_url"] == "https://www.sdzk.cn/NewsInfo.aspx?NewsID=7312"
     assert data["data_source"] == "sdzk.cn"
+
+
+def _record(education_level: str | None, school_name: str = "测试大学") -> SdzkAdmissionRecord:
+    return SdzkAdmissionRecord(
+        education_level=education_level,
+        school_code_raw="A999",
+        school_name_raw=school_name,
+        major_code_raw="01",
+        major_name_raw="护理",
+        major_name="护理",
+        major_note=None,
+        selection_requirement="不限",
+        min_rank=300000,
+        min_rank_raw=None,
+        min_score=None,
+        plan_count=None,
+        toudang_plan_count=None,
+        admitted_count=None,
+    )
+
+
+def test_admission_item_data_falls_back_to_school_level_when_table_has_none():
+    meta = {"year": 2026, "admission_round": 1, "notice_url": "https://www.sdzk.cn/NewsInfo.aspx?NewsID=1"}
+
+    data = SdzkOfficialSpider._admission_item_data(_record(None), meta, 15, {"测试大学": 7}, {7: "本科"})
+
+    assert data["education_level"] == "本科"
+
+
+def test_admission_item_data_keeps_the_row_level_over_the_school_level():
+    meta = {"year": 2026, "admission_round": 2, "notice_url": "https://www.sdzk.cn/NewsInfo.aspx?NewsID=2"}
+
+    data = SdzkOfficialSpider._admission_item_data(_record("专科"), meta, 15, {"测试大学": 7}, {7: "本科"})
+
+    assert data["education_level"] == "专科"
+
+
+def test_admission_item_data_leaves_level_empty_for_unlinked_schools():
+    meta = {"year": 2026, "admission_round": 1, "notice_url": "https://www.sdzk.cn/NewsInfo.aspx?NewsID=3"}
+
+    data = SdzkOfficialSpider._admission_item_data(
+        _record(None, "香港珠海学院"), meta, 15, {"测试大学": 7}, {7: "本科"}
+    )
+
+    assert data["school_id"] is None
+    assert data["education_level"] is None

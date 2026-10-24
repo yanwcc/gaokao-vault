@@ -1035,15 +1035,19 @@ SELECT
 FROM score_segments ss
 JOIN provinces p ON p.id = ss.province_id;
 
--- First-round admission history per (school code, major name, note), used to infer next year's
--- offerings until the official plan is published. School codes are stable across renames; when a
--- school lists the same major name + note under several codes in one year (separate campuses or fee
--- levels the table does not distinguish), every rank of that year is kept and the row is flagged.
+-- First-chance admission history per (school code, major name, note, level), used to infer next
+-- year's offerings until the official plan is published. 本科 rows come from round 1 and 专科 rows from
+-- round 2: round 1 of 常规批 admits 本科 only, and 专科 programmes are first filled in round 2 (round-2
+-- 本科 rows are leftover places and are excluded). Rows without a level are treated as 本科. School codes
+-- are stable across renames; when a school lists the same major name + note under several codes in one
+-- year (separate campuses or fee levels the table does not distinguish), every rank of that year is
+-- kept and the row is flagged.
 CREATE OR REPLACE VIEW gaokao_source.provincial_admission_history_v AS
 WITH yearly AS (
     SELECT
         par.province_id,
         par.batch,
+        COALESCE(par.education_level, '本科') AS education_level,
         par.school_code_raw,
         par.major_name,
         par.major_note,
@@ -1056,8 +1060,10 @@ WITH yearly AS (
         MAX(par.selection_requirement) AS selection_requirement,
         COUNT(*) AS offering_count
     FROM provincial_admission_records par
-    WHERE par.admission_round = 1
-    GROUP BY par.province_id, par.batch, par.school_code_raw, par.major_name, par.major_note, par.year
+    WHERE (par.admission_round = 1 AND COALESCE(par.education_level, '本科') = '本科')
+       OR (par.admission_round = 2 AND par.education_level = '专科')
+    GROUP BY par.province_id, par.batch, COALESCE(par.education_level, '本科'), par.school_code_raw,
+             par.major_name, par.major_note, par.year
 )
 SELECT
     y.province_id,
@@ -1074,7 +1080,8 @@ SELECT
     (ARRAY_AGG(TO_JSONB(y.major_codes) ORDER BY y.year DESC))[1] AS latest_major_codes,
     ARRAY_AGG(y.year ORDER BY y.year DESC) AS years_present,
     JSONB_OBJECT_AGG(y.year::TEXT, TO_JSONB(y.min_ranks)) AS min_ranks_by_year,
-    BOOL_OR(y.offering_count > 1) AS is_ambiguous
+    BOOL_OR(y.offering_count > 1) AS is_ambiguous,
+    y.education_level
 FROM yearly y
 JOIN provinces p ON p.id = y.province_id
-GROUP BY y.province_id, p.name, y.batch, y.school_code_raw, y.major_name, y.major_note;
+GROUP BY y.province_id, p.name, y.batch, y.education_level, y.school_code_raw, y.major_name, y.major_note;
