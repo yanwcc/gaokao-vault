@@ -414,6 +414,7 @@ def test_process_special_item_passes_all_dedup_keys() -> None:
     with patch.object(spider, "process_item", new=AsyncMock(return_value="new")) as process_item:
         asyncio.run(spider._process_special_item(item))
 
+    assert process_item.await_args is not None
     unique_keys = process_item.await_args.kwargs["unique_keys"]
     _table, _clause, key_fields = TABLE_MAP["special_enrollments"]
     assert set(key_fields) <= set(unique_keys)

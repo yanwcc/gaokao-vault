@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any, ClassVar
-from urllib.parse import urlencode, urljoin
 
 from scrapling.spiders import Request, Response
 
@@ -15,13 +15,82 @@ from gaokao_vault.spiders.base import BaseGaokaoSpider
 
 logger = logging.getLogger(__name__)
 
-MAX_SCH_ID = 5000
 SEARCH_ENTRY_URL = f"{BASE_URL}/sch/search--ss-on,option-qg,searchType-1,start-0.dhtml"
 _SCH_ID_PATTERN = re.compile(r"schoolInfo(?:Main)?--schId-(\d+)")
-BRUTE_FORCE_PRIORITY = -10
-PROVINCE_ENTRY_PRIORITY = 5
+_LIST_START_PATTERN = re.compile(r"start-(\d+)\.dhtml")
+LIST_PAGE_SIZE = 20
+LIST_PAGE_MAX_RETRIES = 2
 LIST_PAGE_PRIORITY = 10
 PAGINATION_PRIORITY = 10
+_CLICK_CAPTURE_POLLS = 40
+_CLICK_CAPTURE_POLL_SECONDS = 0.05
+
+
+class _CaptureSchoolIdsAction:
+    """Pickle-safe page_action that resolves the schId of every card on a school list page.
+
+    List cards carry no detail href: the schId only shows up in the URL the card's click
+    handler opens, and newer schools use sparse ids (e.g. 7713355113) that cannot be
+    enumerated. Each card is clicked, the popup's detail navigation is intercepted and
+    aborted, and the schId is stamped onto the card as ``data-sch-id`` before the page
+    HTML is captured.
+    """
+
+    async def __call__(self, page):
+        context = page.context
+        captured: list[str] = []
+        popups: list[Any] = []
+
+        def on_page(popup) -> None:
+            popups.append(popup)
+
+        async def intercept(route) -> None:
+            if await self._is_popup_navigation(route, page):
+                captured.append(route.request.url)
+                await route.abort()
+            else:
+                await route.continue_()
+
+        context.on("page", on_page)
+        await context.route(_SCH_ID_PATTERN, intercept)
+        try:
+            names = page.locator("div.sch-item .js-yxk-yxmc")
+            for index in range(await names.count()):
+                await self._stamp_card(names.nth(index), captured)
+        finally:
+            await context.unroute(_SCH_ID_PATTERN, intercept)
+            context.remove_listener("page", on_page)
+            for popup in popups:
+                if not popup.is_closed() and await popup.opener() is page:
+                    await popup.close()
+        return page
+
+    @staticmethod
+    async def _is_popup_navigation(route, page) -> bool:
+        try:
+            source_page = route.request.frame.page
+        except Exception:
+            # A popup's first navigation is issued before its frame exists; only the
+            # card clicks open popups, other spider tabs navigate existing frames.
+            return True
+        return source_page is not page and await source_page.opener() is page
+
+    @staticmethod
+    async def _stamp_card(name_locator, captured: list[str]) -> None:
+        before = len(captured)
+        await name_locator.click()
+        for _ in range(_CLICK_CAPTURE_POLLS):
+            if len(captured) > before:
+                break
+            await asyncio.sleep(_CLICK_CAPTURE_POLL_SECONDS)
+        else:
+            return
+        match = _SCH_ID_PATTERN.search(captured[-1])
+        if match:
+            await name_locator.evaluate(
+                "(el, schId) => el.closest('.sch-item').setAttribute('data-sch-id', schId)",
+                match.group(1),
+            )
 
 
 class SchoolSpider(BaseGaokaoSpider):
@@ -34,11 +103,23 @@ class SchoolSpider(BaseGaokaoSpider):
         self._scheduled_school_candidates: dict[int, int | None] = {}
         self._refreshed_school_ids: set[int] = set()
         self._visited_list_urls: set[str] = set()
+        self._known_sch_ids: set[int] | None = None
 
     async def _load_province_map(self) -> dict[str, int]:
         async with (await self._get_pool()).acquire() as conn:
             rows = await conn.fetch("SELECT id, name FROM provinces")
         return {row["name"]: row["id"] for row in rows}
+
+    async def _load_known_sch_ids(self) -> set[int]:
+        """In incremental mode, schools already stored are not re-fetched."""
+        if self._known_sch_ids is None:
+            if self.mode == "incremental":
+                async with (await self._get_pool()).acquire() as conn:
+                    rows = await conn.fetch("SELECT sch_id FROM schools")
+                self._known_sch_ids = {int(row["sch_id"]) for row in rows}
+            else:
+                self._known_sch_ids = set()
+        return self._known_sch_ids
 
     async def _resolve_province_id(self, province_text: str | None) -> int | None:
         if not province_text:
@@ -118,44 +199,26 @@ class SchoolSpider(BaseGaokaoSpider):
     async def start_requests(self):
         # Warmup: visit the list page first to establish Cookie/session state
         yield Request(self._warmup_url(), callback=self.parse_warmup)
-        yield Request(SEARCH_ENTRY_URL, callback=self.parse_search_entry)
+        self._visited_list_urls.add(SEARCH_ENTRY_URL)
+        yield self._list_page_request(SEARCH_ENTRY_URL, priority=PAGINATION_PRIORITY)
 
-        for sch_id in range(1, MAX_SCH_ID + 1):
-            request = self._schedule_school_detail(sch_id, None, priority=BRUTE_FORCE_PRIORITY)
-            if request is not None:
-                yield request
-
-    @staticmethod
-    def _extract_sch_id_from_href(href: str) -> int | None:
-        match = _SCH_ID_PATTERN.search(href)
-        return int(match.group(1)) if match else None
-
-    def _extract_next_page_urls(self, response: Response) -> list[str]:
-        urls: list[str] = []
-        for link in response.css("a[href*='searchType-1'][href*='start-']"):
-            href = link.attrib.get("href", "").strip()
-            if not href:
-                continue
-
-            link_text = "".join(part.strip() for part in link.css("::text").getall() if part.strip())
-            if link_text not in {"下一页", "下页", ">", ">>"}:
-                continue
-
-            urls.append(urljoin(BASE_URL, href))
-
-        return urls
+    def _list_page_request(self, url: str, *, priority: int, retries: int = 0) -> Request:
+        return Request(
+            url,
+            callback=self.parse_school_list,
+            priority=priority,
+            dont_filter=retries > 0,
+            meta={"list_retries": retries},
+            page_action=_CaptureSchoolIdsAction(),
+        )
 
     @staticmethod
-    def _build_province_search_url(province_code: str) -> str:
-        query = urlencode({
-            "searchType": "1",
-            "ssdm": province_code,
-            "yxls": "",
-            "xlcc": "",
-            "zgsx": "",
-            "yxjbz": "",
-        })
-        return f"{BASE_URL}/sch/search.do?{query}"
+    def _next_list_page_url(url: str) -> str | None:
+        match = _LIST_START_PATTERN.search(url)
+        if match is None:
+            return None
+        next_start = int(match.group(1)) + LIST_PAGE_SIZE
+        return f"{url[: match.start()]}start-{next_start}.dhtml{url[match.end() :]}"
 
     async def parse_warmup(self, response):
         """Handle warmup response — just log and return."""
@@ -163,96 +226,71 @@ class SchoolSpider(BaseGaokaoSpider):
         return
         yield  # make this an async generator to satisfy Request callback type
 
-    async def parse_search_entry(self, response: Response):
-        for option in response.css("select[name='ssdm'] option"):
-            province_code = option.attrib.get("value", "").strip()
-            province_name = "".join(part.strip() for part in option.css("::text").getall() if part.strip())
-            if not province_code or not province_name or province_name == "全部":
-                continue
+    async def _resolve_card_province_id(self, school_card, sch_id: int) -> int | None:
+        department = school_card.css(".sch-department").first
+        if not department:
+            return None
 
-            try:
-                candidate_province_id = await self._resolve_province_id(province_name)
-            except Exception:
-                logger.warning("Failed to resolve province for search entry '%s'", province_name, exc_info=True)
-                candidate_province_id = None
-
-            url = self._build_province_search_url(province_code)
-            if url in self._visited_list_urls:
-                continue
-
-            self._visited_list_urls.add(url)
-            yield Request(
-                url,
-                callback=self.parse_school_list,
-                priority=PROVINCE_ENTRY_PRIORITY,
-                meta={
-                    "candidate_province_id": candidate_province_id,
-                    "province_name": province_name,
-                },
-            )
-
-    async def _resolve_card_province_id(
-        self,
-        school_card,
-        default_candidate_province_id: int | None,
-        sch_id: int,
-    ) -> int | None:
-        candidate_province_id = default_candidate_province_id
-        department_link = school_card.css("a.sch-department").first
-        if not department_link:
-            return candidate_province_id
-
-        department_text = " ".join(part.strip() for part in department_link.css("::text").getall() if part.strip())
-        if not department_text:
-            return candidate_province_id
+        # Card text looks like "<icon>新疆|主管部门..."; the province is the part before "|".
+        department_text = "".join(department.css("::text").getall())
+        province_text = "".join(ch for ch in department_text.split("|", 1)[0] if ch.isprintable()).strip()
+        if not province_text:
+            return None
 
         try:
-            return await self._resolve_province_id(department_text)
+            return await self._resolve_province_id(province_text)
         except Exception:
             logger.warning(
                 "Failed to resolve province from school list card schId=%s text=%s",
                 sch_id,
-                department_text,
+                province_text,
                 exc_info=True,
             )
-            return candidate_province_id
+            return None
 
     async def parse_school_list(self, response: Response):
         if response.request is None:
             return
 
-        default_candidate_province_id = response.request.meta.get("candidate_province_id")
+        school_cards = response.css("div.sch-item")
+        if not school_cards:
+            logger.info("School list exhausted at %s", response.url)
+            return
 
-        for school_card in response.css("div.sch-item"):
-            link = school_card.css("a.sch-department, .sch-title a.name, a[href*='schoolInfo--schId-']").first
-            if not link:
+        known_sch_ids = await self._load_known_sch_ids()
+        resolved = 0
+        for school_card in school_cards:
+            raw_sch_id = school_card.attrib.get("data-sch-id", "").strip()
+            if not raw_sch_id.isdigit():
                 continue
-            href = link.attrib.get("href", "").strip()
-            sch_id = self._extract_sch_id_from_href(href)
-            if sch_id is None:
+            sch_id = int(raw_sch_id)
+            resolved += 1
+            if sch_id in known_sch_ids:
                 continue
 
-            candidate_province_id = await self._resolve_card_province_id(
-                school_card,
-                default_candidate_province_id,
-                sch_id,
-            )
-
+            candidate_province_id = await self._resolve_card_province_id(school_card, sch_id)
             request = self._schedule_school_detail(sch_id, candidate_province_id, priority=LIST_PAGE_PRIORITY)
             if request is not None:
                 yield request
 
-        for next_url in self._extract_next_page_urls(response):
-            if next_url in self._visited_list_urls:
-                continue
-
-            self._visited_list_urls.add(next_url)
-            yield Request(
-                next_url,
-                callback=self.parse_school_list,
-                priority=PAGINATION_PRIORITY,
-                meta=dict(response.request.meta),
+        if resolved < len(school_cards):
+            retries = int(response.request.meta.get("list_retries", 0))
+            logger.warning(
+                "Resolved %d/%d schIds on %s (retry %d/%d)",
+                resolved,
+                len(school_cards),
+                response.url,
+                retries,
+                LIST_PAGE_MAX_RETRIES,
             )
+            if retries < LIST_PAGE_MAX_RETRIES:
+                yield self._list_page_request(response.url, priority=PAGINATION_PRIORITY, retries=retries + 1)
+
+        next_url = self._next_list_page_url(response.url)
+        if next_url is None or next_url in self._visited_list_urls:
+            return
+        self._visited_list_urls.add(next_url)
+        yield self._list_page_request(next_url, priority=PAGINATION_PRIORITY)
 
     async def parse(self, response: Response):
         if response.status == 404:

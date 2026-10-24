@@ -200,3 +200,10 @@ def test_admission_records_view_appends_min_rank_provenance_to_preserve_existing
     assert schema_sql.find("mar.min_rank, mar.plan_count") < schema_sql.find(
         "mar.min_rank_source, mar.min_rank_is_derived"
     )
+
+
+def test_schools_sch_id_accepts_sparse_large_ids() -> None:
+    schema_sql = Path("src/gaokao_vault/db/schema.sql").read_text()
+
+    assert re.search(r"CREATE TABLE IF NOT EXISTS schools \(.+?sch_id\s+BIGINT UNIQUE NOT NULL", schema_sql, re.S)
+    assert "ALTER TABLE schools ALTER COLUMN sch_id TYPE BIGINT" in schema_sql

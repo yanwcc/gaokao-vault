@@ -7,11 +7,11 @@ from scrapling.parser import Adaptor
 
 from gaokao_vault.config import DatabaseConfig
 from gaokao_vault.spiders.school_spider import (
-    BRUTE_FORCE_PRIORITY,
+    LIST_PAGE_MAX_RETRIES,
     LIST_PAGE_PRIORITY,
     PAGINATION_PRIORITY,
-    PROVINCE_ENTRY_PRIORITY,
     SchoolSpider,
+    _CaptureSchoolIdsAction,
 )
 
 
@@ -34,13 +34,13 @@ class _FakePool:
         return _Acquire(self.conn)
 
 
-def _make_school_spider() -> SchoolSpider:
+def _make_school_spider(mode: str = "full") -> SchoolSpider:
     db_config = DatabaseConfig(
         dsn="postgresql://test:test@localhost:5432/test_db",
         pool_min=1,
         pool_max=2,
     )
-    return SchoolSpider(db_config=db_config, crawl_task_id=1)
+    return SchoolSpider(db_config=db_config, crawl_task_id=1, mode=mode)
 
 
 def _make_response(html: str, url: str, meta: dict | None = None) -> MagicMock:
@@ -62,63 +62,30 @@ async def _collect(async_gen) -> list:
     return items
 
 
-_SEARCH_HTML = """
-<html>
-  <body>
-    <form action="/sch/search.do" id="form1">
-      <input name="searchType" value="1" type="hidden" class="ch-hide">
-      <div class="search-item-box address">
-        <div class="item-title">院校所在地</div>
-        <div class="item-options">
-          <select name="ssdm" class="ch-hide">
-            <option value="11">北京</option>
-            <option value="13">河北</option>
-          </select>
-        </div>
-      </div>
-    </form>
-    <div id="app-yxk-sch-list">
-      <div class="sch-list-container">
-        <div class="sch-item">
-          <a class="name" href="/sch/schoolInfo--schId-10.dhtml">北京大学</a>
-          <a class="sch-department" href="/sch/schoolInfo--schId-10.dhtml">北京|主管部门\uff1a教育部</a>
-        </div>
-        <div class="sch-item">
-          <a class="name" href="/sch/schoolInfo--schId-11.dhtml">河北大学</a>
-          <a class="sch-department" href="/sch/schoolInfo--schId-11.dhtml">河北|主管部门\uff1a河北省教育厅</a>
-        </div>
-      </div>
-      <form id="PageForm" class="pageForm">
-        <ul class="ch-page clearfix">
-          <li class="lip"><a href="https://gaokao.chsi.com.cn/sch/search--ss-on,option-qg,searchType-1,start-20.dhtml">下一页</a></li>
-        </ul>
-      </form>
-    </div>
-  </body>
-</html>
-"""
+# Mirrors the live list page: cards have no detail href, the click capture
+# page_action stamps data-sch-id onto each card before the HTML is captured.
+_LIST_URL = "https://gaokao.chsi.com.cn/sch/search--ss-on,option-qg,searchType-1,start-0.dhtml"
 
 
-_LIST_HTML = """
+def _list_html(cards: list[tuple[str | None, str, str]]) -> str:
+    rendered = []
+    for sch_id, name, province in cards:
+        attr = f' data-sch-id="{sch_id}"' if sch_id is not None else ""
+        rendered.append(
+            f"""
+        <div class="sch-item"{attr}>
+          <img src="https://t1.chei.com.cn/common/xh/10001.jpg">
+          <div class="info-box">
+            <div class="sch-title"><span class="name js-yxk-yxmc"> {name} </span></div>
+            <div class="sch-department"><i class="iconfont cursor-pointer">\ue6a4</i>{province}<span class="col-line">|</span><span class="item-depart-title">主管部门\uff1a</span>教育部</div>
+          </div>
+        </div>"""
+        )
+    return f"""
 <html>
   <body>
-    <div id="app-yxk-sch-list">
-      <div class="sch-list-container">
-        <div class="sch-item">
-          <a class="name" href="/sch/schoolInfo--schId-10.dhtml">北京大学</a>
-          <a class="sch-department" href="/sch/schoolInfo--schId-10.dhtml">北京|主管部门\uff1a教育部</a>
-        </div>
-        <div class="sch-item">
-          <a class="name" href="/sch/schoolInfo--schId-11.dhtml">清华大学</a>
-          <a class="sch-department" href="/sch/schoolInfo--schId-11.dhtml">北京|主管部门\uff1a教育部</a>
-        </div>
-      </div>
-      <form id="PageForm" class="pageForm">
-        <ul class="ch-page clearfix">
-          <li class="lip"><a href="https://gaokao.chsi.com.cn/sch/search--ss-on,option-qg,searchType-1,start-20.dhtml">下一页</a></li>
-        </ul>
-      </form>
-    </div>
+    <div id="app-yxk-sch-list"><div class="sch-list-container">{"".join(rendered)}
+    </div></div>
   </body>
 </html>
 """
@@ -134,89 +101,96 @@ _DETAIL_HTML = """
 """
 
 
-def test_start_requests_emits_only_warmup_and_search_entry():
+def test_start_requests_emits_warmup_and_click_capturing_list_entry():
     spider = _make_school_spider()
 
-    with patch("gaokao_vault.spiders.school_spider.MAX_SCH_ID", 2):
-        requests = asyncio.run(_collect(spider.start_requests()))
+    requests = asyncio.run(_collect(spider.start_requests()))
 
-    assert len(requests) == 4
+    assert len(requests) == 2
     assert requests[0].callback.__name__ == "parse_warmup"
-    assert requests[1].callback.__name__ == "parse_search_entry"
     assert requests[0].url == (
         "https://gaokao.chsi.com.cn/sch/search--ss-on,searchType-1,dataType-2,"
         "schName-,schProvince-,schAddress-,schType-,xlcc-,yxls-,"
         "dual-,naession-,f211-,f985-,autonomy-,central-,start-0.dhtml"
     )
-    assert requests[1].url == "https://gaokao.chsi.com.cn/sch/search--ss-on,option-qg,searchType-1,start-0.dhtml"
-    assert [request.meta["sch_id"] for request in requests[2:]] == [1, 2]
-    assert all(request.callback.__name__ == "parse" for request in requests[2:])
-    assert all(request.priority == BRUTE_FORCE_PRIORITY for request in requests[2:])
+    assert requests[1].url == _LIST_URL
+    assert requests[1].callback.__name__ == "parse_school_list"
+    assert isinstance(requests[1]._session_kwargs["page_action"], _CaptureSchoolIdsAction)
 
 
-def test_parse_search_entry_yields_detail_requests_from_current_page():
+def test_parse_school_list_schedules_captured_sch_ids_and_next_page():
     spider = _make_school_spider()
     response = _make_response(
-        _SEARCH_HTML,
-        "https://gaokao.chsi.com.cn/sch/search--ss-on,option-qg,searchType-1,start-0.dhtml",
+        _list_html([("1", "北京大学", "北京"), ("4617101771", "图木舒克职业技术学院", "新疆")]),
+        _LIST_URL,
     )
 
-    with patch.object(spider, "_load_province_map", new=AsyncMock(return_value={"北京": 1, "河北": 3})):
-        requests = asyncio.run(_collect(spider.parse_search_entry(response)))
-
-    assert [request.meta["candidate_province_id"] for request in requests] == [1, 3]
-    assert [request.meta["province_name"] for request in requests] == ["北京", "河北"]
-    assert requests[0].url == ("https://gaokao.chsi.com.cn/sch/search.do?searchType=1&ssdm=11&yxls=&xlcc=&zgsx=&yxjbz=")
-    assert requests[1].url == ("https://gaokao.chsi.com.cn/sch/search.do?searchType=1&ssdm=13&yxls=&xlcc=&zgsx=&yxjbz=")
-    assert all(request.callback.__name__ == "parse_school_list" for request in requests)
-    assert all(request.priority == PROVINCE_ENTRY_PRIORITY for request in requests)
-
-
-def test_parse_search_entry_keeps_unmappable_school_cards_when_resolution_fails():
-    spider = _make_school_spider()
-    response = _make_response(
-        """
-        <html>
-          <body>
-            <form id="form1">
-              <select name="ssdm">
-                <option value="99">未知地区</option>
-              </select>
-            </form>
-          </body>
-        </html>
-        """,
-        "https://gaokao.chsi.com.cn/sch/search--ss-on,option-qg,searchType-1,start-0.dhtml",
-    )
-
-    with patch.object(spider, "_resolve_province_id", new=AsyncMock(side_effect=RuntimeError("boom"))):
-        requests = asyncio.run(_collect(spider.parse_search_entry(response)))
-
-    assert len(requests) == 1
-    assert requests[0].meta["candidate_province_id"] is None
-    assert requests[0].callback.__name__ == "parse_school_list"
-
-
-def test_parse_school_list_yields_detail_requests_and_next_page():
-    spider = _make_school_spider()
-    response = _make_response(
-        _LIST_HTML,
-        "https://gaokao.chsi.com.cn/sch/search--ss-on,option-qg,searchType-1,start-0.dhtml",
-        {"candidate_province_id": 1, "province_name": "北京"},
-    )
-
-    with patch.object(spider, "_load_province_map", new=AsyncMock(return_value={"北京": 1, "河北": 3})):
+    with patch.object(spider, "_load_province_map", new=AsyncMock(return_value={"北京": 1, "新疆": 31})):
         requests = asyncio.run(_collect(spider.parse_school_list(response)))
 
     detail_requests = [request for request in requests if "schoolInfoMain--schId-" in request.url]
-    pagination_requests = [request for request in requests if "start-20" in request.url]
+    pagination_requests = [request for request in requests if request.callback.__name__ == "parse_school_list"]
 
-    assert {request.meta["sch_id"] for request in detail_requests} == {10, 11}
-    assert all(request.meta["candidate_province_id"] == 1 for request in detail_requests)
+    assert [request.meta["sch_id"] for request in detail_requests] == [1, 4617101771]
+    assert [request.meta["candidate_province_id"] for request in detail_requests] == [1, 31]
     assert all(request.priority == LIST_PAGE_PRIORITY for request in detail_requests)
     assert len(pagination_requests) == 1
-    assert pagination_requests[0].callback.__name__ == "parse_school_list"
+    assert pagination_requests[0].url.endswith("searchType-1,start-20.dhtml")
     assert pagination_requests[0].priority == PAGINATION_PRIORITY
+    assert isinstance(pagination_requests[0]._session_kwargs["page_action"], _CaptureSchoolIdsAction)
+
+
+def test_parse_school_list_stops_on_empty_page():
+    spider = _make_school_spider()
+    response = _make_response(_list_html([]), _LIST_URL.replace("start-0", "start-2960"))
+
+    requests = asyncio.run(_collect(spider.parse_school_list(response)))
+
+    assert requests == []
+
+
+def test_parse_school_list_retries_page_when_some_cards_were_not_captured():
+    spider = _make_school_spider()
+    response = _make_response(
+        _list_html([("1", "北京大学", "北京"), (None, "清华大学", "北京")]),
+        _LIST_URL,
+        {"list_retries": 0},
+    )
+
+    with patch.object(spider, "_load_province_map", new=AsyncMock(return_value={"北京": 1})):
+        requests = asyncio.run(_collect(spider.parse_school_list(response)))
+
+    retry_requests = [request for request in requests if request.url == _LIST_URL]
+    assert len(retry_requests) == 1
+    assert retry_requests[0].dont_filter is True
+    assert retry_requests[0].meta["list_retries"] == 1
+
+    exhausted = _make_response(
+        _list_html([(None, "清华大学", "北京")]),
+        _LIST_URL,
+        {"list_retries": LIST_PAGE_MAX_RETRIES},
+    )
+    requests = asyncio.run(_collect(spider.parse_school_list(exhausted)))
+    assert [request.url for request in requests if request.url == _LIST_URL] == []
+
+
+def test_parse_school_list_skips_known_schools_in_incremental_mode():
+    spider = _make_school_spider(mode="incremental")
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[{"sch_id": 1}])
+    response = _make_response(
+        _list_html([("1", "北京大学", "北京"), ("57290100", "滁州城市职业学院", "安徽")]),
+        _LIST_URL,
+    )
+
+    with (
+        patch.object(spider, "_get_pool", new=AsyncMock(return_value=_FakePool(conn))),
+        patch.object(spider, "_resolve_province_id", new=AsyncMock(return_value=12)),
+    ):
+        requests = asyncio.run(_collect(spider.parse_school_list(response)))
+
+    detail_requests = [request for request in requests if "schoolInfoMain--schId-" in request.url]
+    assert [request.meta["sch_id"] for request in detail_requests] == [57290100]
 
 
 def test_parse_uses_candidate_province_when_detail_page_does_not_resolve_one():
@@ -277,16 +251,16 @@ def test_parse_preserves_existing_province_when_current_item_has_none():
     assert items[0]["province_id"] == 7
 
 
-def test_schedule_school_detail_allows_one_candidate_refresh_after_bruteforce():
+def test_schedule_school_detail_allows_one_candidate_refresh():
     spider = _make_school_spider()
 
-    first = spider._schedule_school_detail(12, None, priority=BRUTE_FORCE_PRIORITY)
+    first = spider._schedule_school_detail(12, None, priority=0)
     second = spider._schedule_school_detail(12, 3, priority=LIST_PAGE_PRIORITY)
     third = spider._schedule_school_detail(12, 4, priority=LIST_PAGE_PRIORITY)
 
     assert first is not None
     assert first.meta["candidate_province_id"] is None
-    assert first.priority == BRUTE_FORCE_PRIORITY
+    assert first.priority == 0
     assert second is not None
     assert second.meta["candidate_province_id"] == 3
     assert second.priority == LIST_PAGE_PRIORITY

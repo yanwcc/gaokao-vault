@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS subject_categories (
 
 CREATE TABLE IF NOT EXISTS schools (
     id              BIGSERIAL PRIMARY KEY,
-    sch_id          INTEGER UNIQUE NOT NULL,
+    sch_id          BIGINT UNIQUE NOT NULL,
     name            VARCHAR(100) NOT NULL,
     province_id     INTEGER REFERENCES provinces(id),
     city            VARCHAR(50),
@@ -181,6 +181,9 @@ CREATE INDEX IF NOT EXISTS idx_schools_province ON schools(province_id);
 CREATE INDEX IF NOT EXISTS idx_schools_level ON schools(level);
 CREATE INDEX IF NOT EXISTS idx_schools_name ON schools USING gin(name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_schools_features ON schools(is_double_first, is_985, is_211);
+
+-- Newer schools use sparse schIds above the INTEGER range (e.g. 7713355113)
+ALTER TABLE schools ALTER COLUMN sch_id TYPE BIGINT;
 
 DROP TRIGGER IF EXISTS update_schools_updated_at ON schools;
 CREATE TRIGGER update_schools_updated_at BEFORE UPDATE ON schools
