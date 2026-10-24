@@ -68,10 +68,11 @@ async def _collect(async_gen) -> list:
 _LIST_URL = "https://gaokao.chsi.com.cn/sch/search--ss-on,option-qg,searchType-1,start-0.dhtml"
 
 
-def _list_html(cards: list[tuple[str | None, str, str]]) -> str:
+def _list_html(cards: list[tuple[str | None, str, str]], levels: dict[str, str] | None = None) -> str:
     rendered = []
     for sch_id, name, province in cards:
         attr = f' data-sch-id="{sch_id}"' if sch_id is not None else ""
+        level = (levels or {}).get(name, "本科")
         rendered.append(
             f"""
         <div class="sch-item"{attr}>
@@ -79,6 +80,7 @@ def _list_html(cards: list[tuple[str | None, str, str]]) -> str:
           <div class="info-box">
             <div class="sch-title"><span class="name js-yxk-yxmc"> {name} </span></div>
             <div class="sch-department"><i class="iconfont cursor-pointer">\ue6a4</i>{province}<span class="col-line">|</span><span class="item-depart-title">主管部门\uff1a</span>教育部</div>
+            <div class="sch-level"><div class="sch-level-tag">{level}</div><div class="sch-level-tag">"双一流"建设高校</div></div>
           </div>
         </div>"""
         )
@@ -370,3 +372,28 @@ def test_parse_leaves_school_type_empty_when_script_did_not_toggle_tags():
 
     assert item["school_type"] is None
     assert item["is_double_first"] is False
+
+
+def test_parse_school_list_carries_card_level_to_detail_item():
+    spider = _make_school_spider()
+    response = _make_response(
+        _list_html(
+            [("1", "北京大学", "北京"), ("4617101771", "图木舒克职业技术学院", "新疆")],
+            levels={"图木舒克职业技术学院": "高职(专科)"},
+        ),
+        _LIST_URL,
+    )
+
+    with patch.object(spider, "_load_province_map", new=AsyncMock(return_value={"北京": 1, "新疆": 31})):
+        requests = asyncio.run(_collect(spider.parse_school_list(response)))
+
+    detail_requests = [request for request in requests if "schoolInfoMain--schId-" in request.url]
+    assert [request.meta["level"] for request in detail_requests] == ["本科", "专科"]
+
+    detail = _make_response(_DETAIL_HTML, detail_requests[1].url, detail_requests[1].meta)
+    with (
+        patch.object(spider, "_resolve_province_id", new=AsyncMock(return_value=None)),
+        patch.object(spider, "process_item", new=AsyncMock(return_value="new")),
+    ):
+        items = asyncio.run(_collect(spider.parse(detail)))
+    assert items[0]["level"] == "专科"

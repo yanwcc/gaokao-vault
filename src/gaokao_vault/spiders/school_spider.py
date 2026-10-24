@@ -24,6 +24,16 @@ _EMPTY_PLACEHOLDERS = frozenset({"-", "--"})
 _HIDDEN_STYLE_PATTERN = re.compile(r"display\s*:\s*none", re.IGNORECASE)
 
 
+def card_level(school_card: Any) -> str | None:
+    """Education level from a list card's tags: "本科" or "专科" (shown as "高职(专科)")."""
+    tags = ["".join(tag.css("::text").getall()).strip() for tag in school_card.css(".sch-level-tag")]
+    if "本科" in tags:
+        return "本科"
+    if any("专科" in tag for tag in tags):
+        return "专科"
+    return None
+
+
 def _is_hidden(node: Any) -> bool:
     return bool(_HIDDEN_STYLE_PATTERN.search(node.attrib.get("style", "")))
 
@@ -162,6 +172,7 @@ class SchoolSpider(BaseGaokaoSpider):
         candidate_province_id: int | None,
         *,
         priority: int = 0,
+        level: str | None = None,
     ) -> Request | None:
         if sch_id not in self._scheduled_school_candidates:
             self._scheduled_school_candidates[sch_id] = candidate_province_id
@@ -169,7 +180,7 @@ class SchoolSpider(BaseGaokaoSpider):
                 f"{BASE_URL}/sch/schoolInfoMain--schId-{sch_id}.dhtml",
                 callback=self.parse,
                 priority=priority,
-                meta={"sch_id": sch_id, "candidate_province_id": candidate_province_id},
+                meta={"sch_id": sch_id, "candidate_province_id": candidate_province_id, "level": level},
             )
 
         if (
@@ -184,7 +195,7 @@ class SchoolSpider(BaseGaokaoSpider):
                 callback=self.parse,
                 priority=priority,
                 dont_filter=True,
-                meta={"sch_id": sch_id, "candidate_province_id": candidate_province_id},
+                meta={"sch_id": sch_id, "candidate_province_id": candidate_province_id, "level": level},
             )
 
         return None
@@ -289,7 +300,9 @@ class SchoolSpider(BaseGaokaoSpider):
                 continue
 
             candidate_province_id = await self._resolve_card_province_id(school_card, sch_id)
-            request = self._schedule_school_detail(sch_id, candidate_province_id, priority=LIST_PAGE_PRIORITY)
+            request = self._schedule_school_detail(
+                sch_id, candidate_province_id, priority=LIST_PAGE_PRIORITY, level=card_level(school_card)
+            )
             if request is not None:
                 yield request
 
@@ -337,6 +350,8 @@ class SchoolSpider(BaseGaokaoSpider):
             logger.warning("Failed to resolve province for schId=%s", sch_id, exc_info=True)
             detail_province_id = None
         data["province_id"] = detail_province_id or candidate_province_id
+        if level := response.request.meta.get("level"):
+            data["level"] = level
 
         item = validate_item(SchoolItem, data)
         if item:
