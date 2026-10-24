@@ -19,6 +19,15 @@ SEARCH_ENTRY_URL = f"{BASE_URL}/sch/search--ss-on,option-qg,searchType-1,start-0
 _SCH_ID_PATTERN = re.compile(r"schoolInfo(?:Main)?--schId-(\d*)")
 # Some cards (e.g. 中国人民大学(苏州校区)) link to "schoolInfo--schId-.dhtml": the site has no detail page.
 NO_DETAIL_MARKER = "none"
+# Detail pages render a missing phone / website as "-".
+_EMPTY_PLACEHOLDERS = frozenset({"-", "--"})
+_HIDDEN_STYLE_PATTERN = re.compile(r"display\s*:\s*none", re.IGNORECASE)
+
+
+def _is_hidden(node: Any) -> bool:
+    return bool(_HIDDEN_STYLE_PATTERN.search(node.attrib.get("style", "")))
+
+
 _LIST_START_PATTERN = re.compile(r"start-(\d+)\.dhtml")
 LIST_PAGE_SIZE = 20
 LIST_PAGE_MAX_RETRIES = 2
@@ -352,9 +361,37 @@ class SchoolSpider(BaseGaokaoSpider):
         return ""
 
     @staticmethod
-    def _extract_tags(response: Response, data: dict) -> None:
-        tags_text = response.css("div.content-introduction span::text").getall()
-        tag_set = {t.strip() for t in tags_text}
+    def _visible_feature_tags(response: Response) -> list[str] | None:
+        """院校特性 tags the page script left visible.
+
+        The template always renders every tag (双一流 / 强基计划 / 高校专项计划); the script hides the
+        container or individual spans with ``display: none``. Returns None when no span carries a
+        style, i.e. the script never toggled them and the tags cannot be trusted.
+        """
+        box = response.css("div.content-introduction .yxtx").first
+        if not box or _is_hidden(box):
+            return []
+        spans = box.css("span")
+        if spans and not any("style" in span.attrib for span in spans):
+            return None
+        return [
+            text for span in spans if not _is_hidden(span) and (text := "".join(span.css("::text").getall()).strip())
+        ]
+
+    @staticmethod
+    def _non_feature_intro_spans(response: Response) -> list[str]:
+        texts = []
+        for span in response.css("div.content-introduction span"):
+            parent = span.parent
+            if parent is not None and "yxtx" in parent.attrib.get("class", "").split():
+                continue
+            text = "".join(span.css("::text").getall()).strip()
+            if text:
+                texts.append(text)
+        return texts
+
+    def _extract_tags(self, response: Response, data: dict) -> None:
+        tag_set = set(self._non_feature_intro_spans(response)) | set(self._visible_feature_tags(response) or [])
         data["is_211"] = "211" in tag_set
         data["is_985"] = "985" in tag_set
         data["is_double_first"] = any("双一流" in t for t in tag_set)
@@ -368,10 +405,14 @@ class SchoolSpider(BaseGaokaoSpider):
         if logo_el:
             data["logo_url"] = logo_el.get("")
 
-        intro_el = response.css("div.content-introduction")
+        intro_el = response.css("div.content-introduction").first
         if intro_el:
-            intro_text = intro_el.css("::text").getall()
-            full_intro = " ".join(t.strip() for t in intro_text if t.strip())
+            feature_texts = {t.strip() for t in intro_el.css(".yxtx ::text").getall() if t.strip()}
+            parts = [t.strip() for t in intro_el.css("::text").getall() if t.strip() and t.strip() not in feature_texts]
+            visible_tags = SchoolSpider._visible_feature_tags(response)
+            if visible_tags:
+                parts += ["院校特性:", *visible_tags]
+            full_intro = " ".join(parts)
             if full_intro:
                 data["introduction"] = full_intro[:5000]
 
@@ -393,6 +434,16 @@ class SchoolSpider(BaseGaokaoSpider):
         "院校类型": "school_type",
     }
 
+    def _extract_school_type(self, response: Response, data: dict) -> None:
+        feature_tags = self._visible_feature_tags(response)
+        if feature_tags is None:
+            logger.warning(
+                "院校特性 tags were not toggled by the page script for schId=%s; leaving school_type empty",
+                data.get("sch_id"),
+            )
+        elif feature_tags:
+            data["school_type"] = " | ".join(feature_tags)
+
     def _extract_detail_fields(self, response: Response, data: dict) -> None:
         """Extract fields from div.content-info-item using span classes and text labels."""
         department_texts = [
@@ -403,21 +454,19 @@ class SchoolSpider(BaseGaokaoSpider):
         if department_texts:
             data["authority"] = department_texts[-1]
 
-        school_type_texts = [
-            text.strip() for text in response.css("div.content-introduction .yxtx span::text").getall() if text.strip()
-        ]
-        if school_type_texts:
-            data["school_type"] = " | ".join(school_type_texts)
+        self._extract_school_type(response, data)
 
         for css_cls, field in self._SPAN_FIELD_MAP.items():
             el = response.css(f"span.{css_cls}::text")
-            if el:
-                data[field] = el.get("").strip()
+            value = el.get("").strip() if el else ""
+            if value and value not in _EMPTY_PLACEHOLDERS:
+                data[field] = value
 
         for css_cls, field in self._LINK_FIELD_MAP.items():
             el = response.css(f"a.{css_cls}::attr(href)")
-            if el:
-                data[field] = el.get("").strip()
+            value = el.get("").strip() if el else ""
+            if value and value not in _EMPTY_PLACEHOLDERS:
+                data[field] = value
 
         for info_item in response.css("div.content-info-item"):
             full_text = " ".join(t.strip() for t in info_item.css("::text").getall())

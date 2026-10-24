@@ -283,3 +283,90 @@ def test_schedule_school_detail_allows_one_candidate_refresh():
     assert second.priority == LIST_PAGE_PRIORITY
     assert second.dont_filter is True
     assert third is None
+
+
+_DETAIL_WITH_FEATURES_HTML = """
+<html>
+  <body>
+    <div class="content-header">{name}</div>
+    <div class="content-introduction">
+      <div class="department">教育行政主管部门:<span>{authority}</span></div>
+      <div class="yxtx"{box_style}>
+        院校特性:
+        <span class="syl"{syl_style}>"双一流"建设高校</span>
+        <span class="qjjh"{qjjh_style}>强基计划</span>
+        <span class="gxzx"{gxzx_style}>高校专项计划</span>
+      </div>
+    </div>
+    <div class="content-info-item">官方电话: <span class="gfdh">{phone}</span></div>
+  </body>
+</html>
+"""
+
+
+def _parse_detail(spider: SchoolSpider, **fmt) -> dict:
+    response = _make_response(
+        _DETAIL_WITH_FEATURES_HTML.format(**fmt),
+        "https://gaokao.chsi.com.cn/sch/schoolInfoMain--schId-20.dhtml",
+        {"sch_id": 20, "candidate_province_id": 1},
+    )
+    with (
+        patch.object(spider, "_resolve_province_id", new=AsyncMock(return_value=1)),
+        patch.object(spider, "process_item", new=AsyncMock(return_value="new")),
+    ):
+        items = asyncio.run(_collect(spider.parse(response)))
+    assert len(items) == 1
+    return items[0]
+
+
+def test_parse_keeps_only_feature_tags_the_page_script_left_visible():
+    hidden, shown = ' style="display: none;"', ' style="display: inline-block;"'
+    item = _parse_detail(
+        _make_school_spider(),
+        name="北京大学",
+        authority="教育部",
+        box_style="",
+        syl_style=shown,
+        qjjh_style=hidden,
+        gxzx_style=hidden,
+        phone="010-62751407",
+    )
+
+    assert item["is_double_first"] is True
+    assert item["school_type"] == '"双一流"建设高校'
+    assert "强基计划" not in item["introduction"]
+    assert item["phone"] == "010-62751407"
+
+
+def test_parse_hidden_feature_box_means_no_features_and_dash_phone_is_empty():
+    item = _parse_detail(
+        _make_school_spider(),
+        name="山东医学高等专科学校",
+        authority="山东省教育厅",
+        box_style=' style="display: none;"',
+        syl_style="",
+        qjjh_style="",
+        gxzx_style="",
+        phone="-",
+    )
+
+    assert item["is_double_first"] is False
+    assert item["school_type"] is None
+    assert item["authority"] == "山东省教育厅"
+    assert item.get("phone") is None
+
+
+def test_parse_leaves_school_type_empty_when_script_did_not_toggle_tags():
+    item = _parse_detail(
+        _make_school_spider(),
+        name="测试大学",
+        authority="教育部",
+        box_style="",
+        syl_style="",
+        qjjh_style="",
+        gxzx_style="",
+        phone="0531-1234567",
+    )
+
+    assert item["school_type"] is None
+    assert item["is_double_first"] is False
