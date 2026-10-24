@@ -2,7 +2,7 @@
 
 The authority publishes admission (投档情况表) and score segment (一分一段表) tables as
 Excel attachments, for both the summer gaokao and the spring gaokao (春季高考, ranked per
-专业类别). Layouts drift between years (extra blank first column, two-row headers,
+专业类别). Batch score lines (分数线 / 录取控制线) are PDF attachments with a text layer. Layouts drift between years (extra blank first column, two-row headers,
 optional 层次 / 选考科目要求 / 最低分 columns), and the 2020 segment table is an Excel HTML
 export saved as ``.xls``, so columns are located by header keywords rather than position.
 """
@@ -19,12 +19,21 @@ SDZK_ADMISSION_LIST_URL = f"{SDZK_BASE_URL}/NewsList.aspx?BCID=1198&CID=47"
 SDZK_SEGMENT_LIST_URL = f"{SDZK_BASE_URL}/NewsList.aspx?BCID=1198&CID=49"
 SDZK_SPRING_ADMISSION_LIST_URL = f"{SDZK_BASE_URL}/NewsList.aspx?BCID=1199&CID=1201"
 SDZK_SPRING_SEGMENT_LIST_URL = f"{SDZK_BASE_URL}/NewsList.aspx?BCID=1199&CID=1203"
+SDZK_SCORE_LINE_LIST_URL = f"{SDZK_BASE_URL}/NewsList.aspx?BCID=1198&CID=48"
+SDZK_SPRING_SCORE_LINE_LIST_URL = f"{SDZK_BASE_URL}/NewsList.aspx?BCID=1199&CID=1202"
 
 _ROUND_NUMERALS = {"1": 1, "2": 2, "3": 3, "一": 1, "二": 2, "三": 3}
 _ADMISSION_TITLE_PATTERN = re.compile(r"(\d{4})年普通类常规批第([123一二三])次志愿投档情况表")
 _SPRING_ADMISSION_TITLE_PATTERN = re.compile(r"(\d{4})年春季高考(本科|专科)批第([123一二三])次志愿投档情况表")
 _SEGMENT_TITLE_PATTERN = re.compile(r"^(\d{4})年夏季高考文化(?:总)?成绩一分一段表$")
 _SPRING_SEGMENT_TITLE_PATTERN = re.compile(r"^(\d{4})年春季高考(?:成绩)?一分一段表$")
+_SCORE_LINE_TITLE_PATTERN = re.compile(r"^山东省(\d{4})年夏季高考各类别分数线$")
+_SPRING_SCORE_LINE_TITLE_PATTERN = re.compile(r"^山东省(\d{4})年春季高考各专业类别录取控制线$")
+# Summer 普通类 lines; the PDF also has 体育类 一段线/二段线, which follow "综合分".
+_SUMMER_LINE_NAMES = ("特殊类型招生控制线", "一段线", "二段线")
+_SUMMER_LINE_SECTION_END = "综合分"
+_SPRING_BENKE_LINE_PATTERN = re.compile(r"^[ \t]*\d{2}[ \t]+(\S+)[ \t]+(\d{2,3})[ \t]*$", re.M)
+_SPRING_ZHUANKE_LINE_PATTERN = re.compile(r"各专业类别专科录取控制线均为\s*(\d+)\s*分")
 _SCHOOL_CELL_PATTERN = re.compile(r"^([A-Z]\d{3})\s*(.+)$")
 _MAJOR_CELL_PATTERN = re.compile(r"^([0-9A-Z]{2})\s*(.+)$")
 _PAREN_GROUP_PATTERN = re.compile(r"\(([^()]*)\)")
@@ -66,6 +75,14 @@ class SdzkAdmissionRecord:
 
 
 @dataclass(frozen=True)
+class SdzkScoreLine:
+    batch: str
+    name: str
+    score: int
+    category: str
+
+
+@dataclass(frozen=True)
 class SdzkSegmentRecord:
     score: int
     segment_count: int
@@ -98,6 +115,72 @@ def parse_segment_title(title: str) -> int | None:
 def parse_spring_segment_title(title: str) -> int | None:
     match = _SPRING_SEGMENT_TITLE_PATTERN.match(title.strip())
     return int(match.group(1)) if match else None
+
+
+def parse_score_line_title(title: str) -> int | None:
+    match = _SCORE_LINE_TITLE_PATTERN.match(title.strip())
+    return int(match.group(1)) if match else None
+
+
+def parse_spring_score_line_title(title: str) -> int | None:
+    match = _SPRING_SCORE_LINE_TITLE_PATTERN.match(title.strip())
+    return int(match.group(1)) if match else None
+
+
+def read_pdf_text(body: bytes) -> str:
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    return "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(body)).pages)
+
+
+def parse_summer_score_lines(text: str, category: str) -> list[SdzkScoreLine]:
+    """Read the 普通类 特殊类型招生控制线 / 一段线 / 二段线 from the summer 各类别分数线 PDF text.
+
+    The table text comes after the notes, and the 体育类 table repeats 一段线/二段线 after "综合分",
+    so each name is searched from the 特殊类型 line up to that marker.
+    """
+    start = text.find(_SUMMER_LINE_NAMES[0])
+    if start < 0:
+        return []
+    end = text.find(_SUMMER_LINE_SECTION_END, start)
+    section = text[start : end if end > 0 else len(text)]
+
+    lines = []
+    for name in _SUMMER_LINE_NAMES:
+        match = re.search(rf"{name}\s*(\d{{2,3}})", section)
+        if match is None:
+            return []
+        lines.append(SdzkScoreLine(batch=ADMISSION_BATCH, name=name, score=int(match.group(1)), category=category))
+    special, first, second = (line.score for line in lines)
+    if not special >= first > second:
+        return []
+    return lines
+
+
+def parse_spring_score_lines(text: str) -> list[SdzkScoreLine]:
+    """Read the per-category 本科 lines and the shared 专科 line from the spring 录取控制线 PDF text."""
+    benke_start = text.find("本科录取控制线")
+    benke_end = text.find("技能拔尖人才", benke_start)
+    if benke_start < 0 or benke_end < 0:
+        return []
+
+    name = "录取控制线"
+    lines = [
+        SdzkScoreLine(batch=f"{SPRING_BATCH_PREFIX}本科批", name=name, score=int(score), category=category)
+        for category, score in _SPRING_BENKE_LINE_PATTERN.findall(text[benke_start:benke_end])
+    ]
+    zhuanke = _SPRING_ZHUANKE_LINE_PATTERN.search(text)
+    if zhuanke is not None:
+        # The 专科 line is one score for every category; store it per category like the 本科 lines.
+        lines += [
+            SdzkScoreLine(
+                batch=f"{SPRING_BATCH_PREFIX}专科批", name=name, score=int(zhuanke.group(1)), category=line.category
+            )
+            for line in list(lines)
+        ]
+    return lines
 
 
 def read_table_rows(body: bytes) -> list[list[str]]:

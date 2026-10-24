@@ -18,6 +18,8 @@ gaokao-vault run-spider sdzk_official --mode incremental  # 近 3 年
 | 分段表（CID 49） | `YYYY年夏季高考文化(总)成绩一分一段表` | `score_segments`（科类 `综合`，取"全体"列） |
 | 春季高考 · 院校投档情况（BCID 1199，CID 1201） | `山东省YYYY年春季高考本科批/专科批第N次志愿投档情况表` | `provincial_admission_records`（批次 `春季本科批` / `春季专科批`） |
 | 春季高考 · 分段表（BCID 1199，CID 1203） | `YYYY年春季高考(成绩)一分一段表` | `score_segments`（科类为专业类别） |
+| 分数线（CID 48） | `山东省YYYY年夏季高考各类别分数线`（PDF） | `admission_score_lines`（科类 `综合`，批次 `常规批`） |
+| 春季高考 · 分数线（BCID 1199，CID 1202） | `山东省YYYY年春季高考各专业类别录取控制线`（PDF） | `admission_score_lines`（科类为专业类别） |
 
 栏目列表翻页是 ASP.NET 回传，爬虫带页面隐藏字段模拟"下一页"。附件格式逐年漂移（首列空列、
 两行表头、2020 年有最低分/计划数、2023 年起第 2/3 次有层次、2026 年起有选考科目要求；
@@ -33,6 +35,16 @@ gaokao-vault run-spider sdzk_official --mode incremental  # 近 3 年
 - 一分一段表按专业类别各自累计，存入 `score_segments.subject_category_id`；夏季高考为 `综合`。
   读 `score_segments` 或 `gaokao_source.score_rank_v` 时必须按科类（`subject_category`）过滤。
 - `education_level` 由批次决定：本科批为本科，专科批为专科。
+
+## 批次线：`admission_score_lines`
+
+- 从 2025 年起导入：分数线公告 2025 年起是带文字层的 PDF，用 `pypdf` 取文字；更早的年份是图片，不导入。
+  山东按位次投档，模拟志愿只用当年的线判断资格，不需要往年的线。
+- 夏季高考只取普通类：`special_name` 为 `特殊类型招生控制线`、`一段线`、`二段线`，批次 `常规批`，科类 `综合`。
+  艺术类、体育类和"3+2"资格线不导入。
+- 春季高考：`春季本科批` 每个专业类别一条本科录取控制线；专科线全省各类别相同，按类别各存一条到
+  `春季专科批`，`special_name` 均为 `录取控制线`。技能拔尖人才本科线不导入。
+- 第 2/3 次志愿的填报资格线、录取控制线（图片）不导入。
 
 ## `provincial_admission_records`
 

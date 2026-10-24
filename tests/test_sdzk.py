@@ -4,10 +4,14 @@ from gaokao_vault.spiders.sdzk import (
     SdzkAdmissionTitle,
     parse_admission_rows,
     parse_admission_title,
+    parse_score_line_title,
     parse_segment_rows,
     parse_segment_title,
+    parse_spring_score_line_title,
+    parse_spring_score_lines,
     parse_spring_segment_rows,
     parse_spring_segment_title,
+    parse_summer_score_lines,
     read_table_rows,
     split_major_name,
 )
@@ -199,3 +203,67 @@ def test_parse_spring_segment_rows_keeps_category_per_row():
         ("现代农艺", 624, 1, 2),
         ("艺术设计", 0, 42, 4979),
     ]
+
+
+# Text as pypdf extracts it from the 2026 PDFs (notes trimmed): table cells follow the section
+# headings, and the 体育类 table repeats 一段线/二段线 after "综合分".
+_SUMMER_LINES_TEXT = """山东省 2026 年夏季高考
+各类别分数线
+一、普通类
+三、体育类
+分 数
+特殊类型招生控制线 525
+一段线 442
+二段线 150
+“3+2 对口贯通分段培养”
+高职志愿填报资格线 392
+本科文化控制线 442 331 287
+专科文化控制线 150
+综合分
+一段线 574
+二段线 444"""
+
+_SPRING_LINES_TEXT = """1
+山东省 2026 年春季高考各专业类别
+录取控制线
+一、本科录取控制线
+专业类别代码 专业类别 分数线
+01 现代农艺 527
+19 药学 525
+2
+20 护理 520
+30 艺术设计 515
+二、技能拔尖人才本科录取控制线 140 分
+四、专科录取控制线
+各专业类别专科录取控制线均为 150 分"""
+
+
+def test_parse_score_line_titles():
+    assert parse_score_line_title("山东省2026年夏季高考各类别分数线") == 2026
+    assert parse_spring_score_line_title("山东省2025年春季高考各专业类别录取控制线") == 2025
+    assert parse_spring_score_line_title("山东省2026年春季高考本科批第2次志愿录取控制线") is None
+    assert parse_spring_score_line_title("山东省2022年春季高考各专业类别本科录取控制线") is None
+
+
+def test_parse_summer_score_lines_takes_the_general_table_not_the_sports_one():
+    lines = parse_summer_score_lines(_SUMMER_LINES_TEXT, "综合")
+
+    assert [(line.batch, line.name, line.score, line.category) for line in lines] == [
+        ("常规批", "特殊类型招生控制线", 525, "综合"),
+        ("常规批", "一段线", 442, "综合"),
+        ("常规批", "二段线", 150, "综合"),
+    ]
+
+
+def test_parse_summer_score_lines_rejects_out_of_order_scores():
+    assert parse_summer_score_lines(_SUMMER_LINES_TEXT.replace("一段线 442", "一段线 100", 1), "综合") == []
+
+
+def test_parse_spring_score_lines_expands_the_shared_zhuanke_line_per_category():
+    lines = parse_spring_score_lines(_SPRING_LINES_TEXT)
+
+    benke = [(line.category, line.score) for line in lines if line.batch == "春季本科批"]
+    zhuanke = [(line.category, line.score) for line in lines if line.batch == "春季专科批"]
+    assert benke == [("现代农艺", 527), ("药学", 525), ("护理", 520), ("艺术设计", 515)]
+    assert zhuanke == [("现代农艺", 150), ("药学", 150), ("护理", 150), ("艺术设计", 150)]
+    assert {line.name for line in lines} == {"录取控制线"}

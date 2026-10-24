@@ -109,6 +109,44 @@ def test_parse_notice_sends_spring_segments_to_segment_parser():
     assert [r.callback.__name__ for r in requests] == ["parse_segment_file"]
 
 
+_SCORE_LINE_LIST_HTML = """
+<html><body><ul>
+  <li><a href="NewsInfo.aspx?NewsID=7256">山东省2026年夏季高考各类别分数线<span>2026-06-25</span></a></li>
+  <li><a href="NewsInfo.aspx?NewsID=6579">山东省2024年夏季高考各类别分数线<span>2024-06-25</span></a></li>
+  <li><a href="NewsInfo.aspx?NewsID=6942">山东省2025年春季高考各专业类别录取控制线<span>2025-06-25</span></a></li>
+</ul></body></html>
+"""
+
+
+def test_parse_list_requests_score_line_notices_from_2025():
+    spider = _make_spider()
+    meta = {"list_url": SDZK_SPRING_ADMISSION_LIST_URL}
+    response = _make_response(_SCORE_LINE_LIST_HTML, SDZK_SPRING_ADMISSION_LIST_URL, meta)
+
+    with patch.object(spider, "_crawl_years", return_value=range(2020, 2027)):
+        requests = asyncio.run(_collect(spider.parse_list(response)))
+
+    notices = [r for r in requests if r.callback.__name__ == "parse_notice"]
+    assert [(r.meta["kind"], r.meta["year"]) for r in notices] == [("score_line", 2026), ("spring_score_line", 2025)]
+
+
+def test_parse_notice_follows_pdf_attachments_for_score_lines():
+    spider = _make_spider()
+    html = """
+    <html><body>
+      <a href="/Floadup/file/20260625/639.pdf">分数线</a>
+      <a href="/Floadup/file/20260625/639.xls">其他</a>
+    </body></html>
+    """
+    meta = {"kind": "score_line", "title": "山东省2026年夏季高考各类别分数线", "year": 2026}
+    response = _make_response(html, "https://www.sdzk.cn/NewsInfo.aspx?NewsID=7256", meta)
+
+    requests = asyncio.run(_collect(spider.parse_notice(response)))
+
+    assert [r.url for r in requests] == ["https://www.sdzk.cn/Floadup/file/20260625/639.pdf"]
+    assert requests[0].callback.__name__ == "parse_score_line_file"
+
+
 def test_parse_list_stops_paging_once_page_is_older_than_window():
     spider = _make_spider(mode="incremental")
     response = _make_response(_LIST_HTML, SDZK_ADMISSION_LIST_URL, {"list_url": SDZK_ADMISSION_LIST_URL})
