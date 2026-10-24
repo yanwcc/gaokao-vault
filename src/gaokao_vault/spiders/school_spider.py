@@ -414,9 +414,8 @@ class SchoolSpider(BaseGaokaoSpider):
         data["is_211"] = "211" in tag_set
         data["is_985"] = "985" in tag_set
         data["is_double_first"] = any("双一流" in t for t in tag_set)
-        data["is_private"] = "民办" in tag_set
-        data["is_independent"] = "独立学院" in tag_set
-        data["is_sino_foreign"] = "中外合作办学" in tag_set
+        # is_private / is_independent / is_sino_foreign are not on these pages; the school_ownership task
+        # sets them from the list's 办学类型 filter.
 
     @staticmethod
     def _extract_logo_and_intro(response: Response, data: dict) -> None:

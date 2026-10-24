@@ -60,14 +60,16 @@ class TestConstants:
         assert TaskType.MAJOR_STRENGTH_SIGNALS.value == "major_strength_signals"
         assert TaskType.PROVINCIAL_ANNOUNCEMENTS.value == "provincial_announcements"
         assert TaskType.SDZK_OFFICIAL.value == "sdzk_official"
-        assert len(TaskType) == 18
+        assert TaskType.SCHOOL_OWNERSHIP.value == "school_ownership"
+        assert len(TaskType) == 19
 
     def test_phase_types(self):
         assert len(PHASE2_TYPES) == 4
-        assert len(PHASE3_TYPES) == 13
+        assert len(PHASE3_TYPES) == 14
         assert TaskType.SCHOOLS in PHASE2_TYPES
         assert TaskType.SCHOOL_MAJORS in PHASE3_TYPES
         assert TaskType.DXSBB_ADMISSION_RESULTS in PHASE3_TYPES
         assert TaskType.MAJOR_STRENGTH_SIGNALS in PHASE3_TYPES
         assert TaskType.PROVINCIAL_ANNOUNCEMENTS in PHASE3_TYPES
         assert TaskType.SDZK_OFFICIAL in PHASE3_TYPES
+        assert TaskType.SCHOOL_OWNERSHIP in PHASE3_TYPES

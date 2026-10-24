@@ -42,7 +42,12 @@ gaokao-vault crawl --mode incremental --types schools -v
 
 `schools`, `majors`, `score_lines`, `score_segments`, `enrollment_plans`,
 `charters`, `timelines`, `special`, `school_majors`, `school_satisfaction`,
-`major_satisfaction`, `interpretations`, `announcements`
+`major_satisfaction`, `interpretations`, `announcements`, `sdzk_official`, `school_ownership`
+
+`school_ownership` 在阳光高考院校列表上依次应用"民办高校 / 独立学院 / 中外合作办学"筛选，按校名回写
+`schools.is_private` / `is_independent` / `is_sino_foreign`（三类在网站上互斥：独立学院不计入民办）。
+院校列表卡片和详情页都不显示办学性质，所以 `schools` 任务不写这三列。某一类抓到的校名少于
+"(末页页码 - 1) × 20"时视为不完整，该列保持不变。
 
 ## run-spider
 

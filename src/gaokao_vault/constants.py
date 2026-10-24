@@ -26,6 +26,7 @@ class TaskType(str, Enum):
     SPECIAL = "special"
     PROVINCIAL_ANNOUNCEMENTS = "provincial_announcements"
     SDZK_OFFICIAL = "sdzk_official"
+    SCHOOL_OWNERSHIP = "school_ownership"
 
 
 PHASE2_TYPES = [
@@ -49,4 +50,5 @@ PHASE3_TYPES = [
     TaskType.INTERPRETATIONS,
     TaskType.PROVINCIAL_ANNOUNCEMENTS,
     TaskType.SDZK_OFFICIAL,
+    TaskType.SCHOOL_OWNERSHIP,
 ]

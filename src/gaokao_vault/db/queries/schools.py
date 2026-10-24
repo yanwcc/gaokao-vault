@@ -15,8 +15,7 @@ async def upsert_school(conn: asyncpg.Connection, data: dict) -> int:
             name=EXCLUDED.name, province_id=COALESCE(EXCLUDED.province_id, schools.province_id), city=EXCLUDED.city,
             authority=EXCLUDED.authority, level=EXCLUDED.level,
             is_211=EXCLUDED.is_211, is_985=EXCLUDED.is_985, is_double_first=EXCLUDED.is_double_first,
-            is_private=EXCLUDED.is_private, is_independent=EXCLUDED.is_independent,
-            is_sino_foreign=EXCLUDED.is_sino_foreign, school_type=EXCLUDED.school_type,
+            school_type=EXCLUDED.school_type,
             website=EXCLUDED.website, phone=EXCLUDED.phone, email=EXCLUDED.email,
             address=EXCLUDED.address, introduction=EXCLUDED.introduction, logo_url=EXCLUDED.logo_url,
             content_hash=EXCLUDED.content_hash, crawl_task_id=EXCLUDED.crawl_task_id

@@ -341,6 +341,7 @@ class TestPhaseOrderingPreservation:
             TaskType.MAJOR_STRENGTH_SIGNALS,
             TaskType.PROVINCIAL_ANNOUNCEMENTS,
             TaskType.SDZK_OFFICIAL,
+            TaskType.SCHOOL_OWNERSHIP,
         }
         assert set(PHASE3_TYPES) == expected
 
