@@ -698,6 +698,50 @@ DROP TRIGGER IF EXISTS update_provincial_announcements_updated_at ON provincial_
 CREATE TRIGGER update_provincial_announcements_updated_at BEFORE UPDATE ON provincial_announcements
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- Official provincial admission (投档) tables stored row-for-row. Rows keep the province's own
+-- school / major codes; school_id is linked when the school name resolves, majors are not forced
+-- onto the national catalogue because many rows are 专业类 (e.g. 计算机类) rather than majors.
+CREATE TABLE IF NOT EXISTS provincial_admission_records (
+    id                  BIGSERIAL PRIMARY KEY,
+    province_id         INTEGER NOT NULL REFERENCES provinces(id),
+    year                SMALLINT NOT NULL,
+    batch               VARCHAR(50) NOT NULL,
+    admission_round     SMALLINT NOT NULL,
+    education_level     VARCHAR(20),
+    school_id           BIGINT REFERENCES schools(id),
+    school_code_raw     VARCHAR(20) NOT NULL,
+    school_name_raw     VARCHAR(100) NOT NULL,
+    major_code_raw      VARCHAR(20) NOT NULL,
+    major_name_raw      VARCHAR(255) NOT NULL,
+    major_name          VARCHAR(100) NOT NULL,
+    major_note          VARCHAR(255),
+    program_type        VARCHAR(100),
+    selection_requirement VARCHAR(100),
+    min_rank            INTEGER,
+    min_rank_raw        VARCHAR(50),
+    min_score           INTEGER,
+    plan_count          INTEGER,
+    toudang_plan_count  INTEGER,
+    admitted_count      INTEGER,
+    source_url          VARCHAR(255),
+    data_source         VARCHAR(100) NOT NULL,
+    content_hash        VARCHAR(64),
+    crawl_task_id       BIGINT REFERENCES crawl_tasks(id),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (province_id, year, batch, admission_round, school_code_raw, major_code_raw)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provincial_admission_province_year
+    ON provincial_admission_records(province_id, year, admission_round);
+CREATE INDEX IF NOT EXISTS idx_provincial_admission_school ON provincial_admission_records(school_id);
+CREATE INDEX IF NOT EXISTS idx_provincial_admission_history_key
+    ON provincial_admission_records(province_id, batch, school_code_raw, major_name);
+
+DROP TRIGGER IF EXISTS update_provincial_admission_records_updated_at ON provincial_admission_records;
+CREATE TRIGGER update_provincial_admission_records_updated_at BEFORE UPDATE ON provincial_admission_records
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- -----------------------------------------------------------
 -- 8. Compatibility source views for gaokao-agent
 -- -----------------------------------------------------------
@@ -990,3 +1034,47 @@ SELECT
     ss.cumulative_count AS rank
 FROM score_segments ss
 JOIN provinces p ON p.id = ss.province_id;
+
+-- First-round admission history per (school code, major name, note), used to infer next year's
+-- offerings until the official plan is published. School codes are stable across renames; when a
+-- school lists the same major name + note under several codes in one year (separate campuses or fee
+-- levels the table does not distinguish), every rank of that year is kept and the row is flagged.
+CREATE OR REPLACE VIEW gaokao_source.provincial_admission_history_v AS
+WITH yearly AS (
+    SELECT
+        par.province_id,
+        par.batch,
+        par.school_code_raw,
+        par.major_name,
+        par.major_note,
+        par.year,
+        ARRAY_AGG(par.min_rank ORDER BY par.min_rank NULLS LAST) AS min_ranks,
+        ARRAY_AGG(par.major_code_raw ORDER BY par.min_rank NULLS LAST) AS major_codes,
+        MAX(par.school_name_raw) AS school_name_raw,
+        MAX(par.school_id) AS school_id,
+        MAX(par.program_type) AS program_type,
+        MAX(par.selection_requirement) AS selection_requirement,
+        COUNT(*) AS offering_count
+    FROM provincial_admission_records par
+    WHERE par.admission_round = 1
+    GROUP BY par.province_id, par.batch, par.school_code_raw, par.major_name, par.major_note, par.year
+)
+SELECT
+    y.province_id,
+    p.name AS province,
+    y.batch,
+    y.school_code_raw,
+    (ARRAY_AGG(y.school_name_raw ORDER BY y.year DESC))[1] AS school_name_raw,
+    (ARRAY_AGG(y.school_id ORDER BY y.year DESC))[1] AS school_id,
+    y.major_name,
+    y.major_note,
+    (ARRAY_AGG(y.program_type ORDER BY y.year DESC))[1] AS program_type,
+    (ARRAY_AGG(y.selection_requirement ORDER BY y.year DESC))[1] AS latest_selection_requirement,
+    MAX(y.year) AS latest_year,
+    (ARRAY_AGG(TO_JSONB(y.major_codes) ORDER BY y.year DESC))[1] AS latest_major_codes,
+    ARRAY_AGG(y.year ORDER BY y.year DESC) AS years_present,
+    JSONB_OBJECT_AGG(y.year::TEXT, TO_JSONB(y.min_ranks)) AS min_ranks_by_year,
+    BOOL_OR(y.offering_count > 1) AS is_ambiguous
+FROM yearly y
+JOIN provinces p ON p.id = y.province_id
+GROUP BY y.province_id, p.name, y.batch, y.school_code_raw, y.major_name, y.major_note;

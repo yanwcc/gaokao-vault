@@ -26,6 +26,7 @@ from gaokao_vault.spiders.school_satisfaction_spider import SchoolSatisfactionSp
 from gaokao_vault.spiders.school_spider import SchoolSpider
 from gaokao_vault.spiders.score_line_spider import ScoreLineSpider
 from gaokao_vault.spiders.score_segment_spider import ScoreSegmentSpider
+from gaokao_vault.spiders.sdzk_official_spider import SdzkOfficialSpider
 from gaokao_vault.spiders.special_spider import SpecialSpider
 from gaokao_vault.spiders.timeline_spider import TimelineSpider
 
@@ -60,6 +61,7 @@ SPIDER_MAP: dict[str, type[BaseGaokaoSpider]] = {
     TaskType.MAJOR_SATISFACTION: MajorSatisfactionSpider,
     TaskType.INTERPRETATIONS: InterpretationSpider,
     TaskType.PROVINCIAL_ANNOUNCEMENTS: ProvincialAnnouncementSpider,
+    TaskType.SDZK_OFFICIAL: SdzkOfficialSpider,
 }
 
 

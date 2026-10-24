@@ -207,3 +207,12 @@ def test_schools_sch_id_accepts_sparse_large_ids() -> None:
 
     assert re.search(r"CREATE TABLE IF NOT EXISTS schools \(.+?sch_id\s+BIGINT UNIQUE NOT NULL", schema_sql, re.S)
     assert "ALTER TABLE schools ALTER COLUMN sch_id TYPE BIGINT" in schema_sql
+
+
+def test_provincial_admission_records_keep_official_rows_and_history_view() -> None:
+    schema_sql = _normalize_sql(Path("src/gaokao_vault/db/schema.sql").read_text())
+
+    assert "CREATE TABLE IF NOT EXISTS provincial_admission_records" in schema_sql
+    assert "UNIQUE (province_id, year, batch, admission_round, school_code_raw, major_code_raw)" in schema_sql
+    assert "CREATE OR REPLACE VIEW gaokao_source.provincial_admission_history_v AS" in schema_sql
+    assert "BOOL_OR(y.offering_count > 1) AS is_ambiguous" in schema_sql

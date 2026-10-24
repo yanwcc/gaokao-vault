@@ -60,6 +60,17 @@ TABLE_MAP: dict[str, tuple[str, str, list[str]]] = {
         "major_id IS NOT DISTINCT FROM $1 AND title IS NOT DISTINCT FROM $2",
         ["major_id", "title"],
     ),
+    "provincial_admission_records": (
+        "provincial_admission_records",
+        "province_id = $1 AND year = $2 AND batch = $3 AND admission_round = $4 "
+        "AND school_code_raw = $5 AND major_code_raw = $6",
+        ["province_id", "year", "batch", "admission_round", "school_code_raw", "major_code_raw"],
+    ),
+    "score_segments": (
+        "score_segments",
+        "province_id = $1 AND year = $2 AND subject_category_id IS NOT DISTINCT FROM $3 AND score = $4",
+        ["province_id", "year", "subject_category_id", "score"],
+    ),
     "provincial_announcements": (
         "provincial_announcements",
         "province_id = $1 AND title = $2 AND source_url IS NOT DISTINCT FROM $3",

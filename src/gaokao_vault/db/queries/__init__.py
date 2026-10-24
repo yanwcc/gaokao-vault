@@ -1,4 +1,4 @@
-from gaokao_vault.db.queries.admission import upsert_major_admission_result
+from gaokao_vault.db.queries.admission import upsert_major_admission_result, upsert_provincial_admission_record
 from gaokao_vault.db.queries.crawl_meta import create_task, find_latest_hash, insert_snapshot, update_task_stats
 from gaokao_vault.db.queries.enrollment import (
     upsert_charter,
@@ -23,7 +23,12 @@ from gaokao_vault.db.queries.schools import (
     upsert_school,
     upsert_school_satisfaction,
 )
-from gaokao_vault.db.queries.scores import batch_upsert_score_segments, find_score_segment_rank, upsert_score_line
+from gaokao_vault.db.queries.scores import (
+    batch_upsert_score_segments,
+    find_score_segment_rank,
+    upsert_score_line,
+    upsert_score_segment,
+)
 from gaokao_vault.db.queries.special import upsert_special_enrollment
 
 __all__ = [
@@ -45,12 +50,14 @@ __all__ = [
     "upsert_major_interpretation",
     "upsert_major_satisfaction",
     "upsert_major_subcategory",
+    "upsert_provincial_admission_record",
     "upsert_provincial_announcement",
     "upsert_school",
     "upsert_school_major",
     "upsert_school_major_strength_signal",
     "upsert_school_satisfaction",
     "upsert_score_line",
+    "upsert_score_segment",
     "upsert_special_enrollment",
     "upsert_timeline",
 ]

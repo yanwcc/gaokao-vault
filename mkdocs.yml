@@ -11,6 +11,7 @@ nav:
   - 快速开始: getting-started.md
   - 架构设计: architecture.md
   - 强基计划数据设计: strong-foundation.md
+  - 山东官方投档数据: shandong-official.md
   - CLI 参考: cli.md
   - API 模块: modules.md
 

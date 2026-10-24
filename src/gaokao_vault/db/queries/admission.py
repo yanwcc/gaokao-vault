@@ -98,3 +98,63 @@ async def upsert_major_admission_result(conn: asyncpg.Connection, data: dict) ->
         data.get("crawl_task_id"),
     )
     return row["id"]
+
+
+async def upsert_provincial_admission_record(conn: asyncpg.Connection, data: dict) -> int:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO provincial_admission_records (
+            province_id, year, batch, admission_round, education_level, school_id,
+            school_code_raw, school_name_raw, major_code_raw, major_name_raw, major_name, major_note,
+            program_type, selection_requirement, min_rank, min_rank_raw, min_score,
+            plan_count, toudang_plan_count, admitted_count, source_url, data_source,
+            content_hash, crawl_task_id
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+        ON CONFLICT (province_id, year, batch, admission_round, school_code_raw, major_code_raw) DO UPDATE SET
+            education_level=EXCLUDED.education_level,
+            school_id=EXCLUDED.school_id,
+            school_name_raw=EXCLUDED.school_name_raw,
+            major_name_raw=EXCLUDED.major_name_raw,
+            major_name=EXCLUDED.major_name,
+            major_note=EXCLUDED.major_note,
+            program_type=EXCLUDED.program_type,
+            selection_requirement=EXCLUDED.selection_requirement,
+            min_rank=EXCLUDED.min_rank,
+            min_rank_raw=EXCLUDED.min_rank_raw,
+            min_score=EXCLUDED.min_score,
+            plan_count=EXCLUDED.plan_count,
+            toudang_plan_count=EXCLUDED.toudang_plan_count,
+            admitted_count=EXCLUDED.admitted_count,
+            source_url=EXCLUDED.source_url,
+            data_source=EXCLUDED.data_source,
+            content_hash=EXCLUDED.content_hash,
+            crawl_task_id=EXCLUDED.crawl_task_id
+        RETURNING id
+        """,
+        data["province_id"],
+        data["year"],
+        data["batch"],
+        data["admission_round"],
+        data.get("education_level"),
+        data.get("school_id"),
+        data["school_code_raw"],
+        data["school_name_raw"],
+        data["major_code_raw"],
+        data["major_name_raw"],
+        data["major_name"],
+        data.get("major_note"),
+        data.get("program_type"),
+        data.get("selection_requirement"),
+        data.get("min_rank"),
+        data.get("min_rank_raw"),
+        data.get("min_score"),
+        data.get("plan_count"),
+        data.get("toudang_plan_count"),
+        data.get("admitted_count"),
+        data.get("source_url"),
+        data["data_source"],
+        data.get("content_hash"),
+        data.get("crawl_task_id"),
+    )
+    return row["id"]

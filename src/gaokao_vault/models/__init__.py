@@ -1,4 +1,4 @@
-from gaokao_vault.models.admission import MajorAdmissionResultItem
+from gaokao_vault.models.admission import MajorAdmissionResultItem, ProvincialAdmissionRecordItem
 from gaokao_vault.models.enrollment import CharterItem, EnrollmentPlanItem, ProvincialAnnouncementItem, TimelineItem
 from gaokao_vault.models.major import (
     MajorCategoryItem,
@@ -24,6 +24,7 @@ __all__ = [
     "MajorItem",
     "MajorSatisfactionItem",
     "MajorSubcategoryItem",
+    "ProvincialAdmissionRecordItem",
     "ProvincialAnnouncementItem",
     "SchoolItem",
     "SchoolMajorStrengthSignalItem",

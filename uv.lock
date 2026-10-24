@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.10, <4.0"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -715,18 +715,6 @@ wheels = [
 ]
 
 [[package]]
-name = "datarecorder"
-version = "3.6.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "openpyxl" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b4/a1/43d52eada4e1364f8d1a5da99b855798f945228ffb7dfb199f675c1d2c2b/DataRecorder-3.6.2.tar.gz", hash = "sha256:8c9024736692af68b947fd884589e685c4f27bc29d031b81164457b09c60e1e5", size = 29567, upload-time = "2024-10-15T08:58:36.923Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/05/f0064d93a0b922ea7ad5d40a0dfaac45de37f783a85a2900e6ce8a01dbc3/DataRecorder-3.6.2-py3-none-any.whl", hash = "sha256:41ad022c4c1db58a0f4236f6a4991d1f98cd76ec049484b172bbb3040455e5ff", size = 37539, upload-time = "2024-10-15T08:58:35.419Z" },
-]
-
-[[package]]
 name = "decorator"
 version = "5.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -784,35 +772,48 @@ wheels = [
 ]
 
 [[package]]
-name = "downloadkit"
-version = "2.0.7"
+name = "drissionget"
+version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "datarecorder" },
+    { name = "drissionrecord" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6b/35/9bbaed54f5d170b1fd8bcfdd3ce5e24ea71f4cac5026a37e6b21ab69726e/DownloadKit-2.0.7.tar.gz", hash = "sha256:601e423d1d4d0bd3e933524d06c913e744577d455990ec20afc3fb1f79aea9a7", size = 17488, upload-time = "2024-11-30T01:24:30.539Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/80/2c/c9d6aeffeecd7f5620af419d8a33aec7d2ab29da7503a442dae2d7177a15/drissionget-1.2.1.tar.gz", hash = "sha256:a05519bea59cc7a588f1a5a9ee6844282e59963eac212baa406da1c20bca9908", size = 18014, upload-time = "2026-06-04T01:44:33.94Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/89/979ad2407eb8e0a2ac67461b7bec7db8627218fe3ba287db49636ca0a60c/DownloadKit-2.0.7-py3-none-any.whl", hash = "sha256:55b142d26b4e7ae01fff2181991c92aca9b895f75e2cd8a54f4a3b48c50b90b4", size = 21706, upload-time = "2024-11-30T01:24:17.599Z" },
+    { url = "https://files.pythonhosted.org/packages/b7/93/7e4f2026811349c70fb9b7a2cc4c1dc31a6592fa41554d0e4406b80bf83c/drissionget-1.2.1-py3-none-any.whl", hash = "sha256:cd0ae08c26e6a7f5bd105ca787d79854569c8ebfeb67f978b86aee7d2b983a29", size = 22254, upload-time = "2026-06-04T01:44:32.923Z" },
 ]
 
 [[package]]
 name = "drissionpage"
-version = "4.1.1.2"
+version = "4.1.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "cssselect" },
-    { name = "downloadkit" },
+    { name = "drissionget" },
+    { name = "drissionrecord" },
     { name = "lxml" },
     { name = "psutil" },
     { name = "requests" },
     { name = "tldextract" },
     { name = "websocket-client" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/12/b3/26bb358f3c7019bba0a2e27a636382a4226780628c30ab315537524809fb/drissionpage-4.1.1.2.tar.gz", hash = "sha256:e4375d3536519a1d24430270e2871de3015836b301cbdfb96583234e6d6ef4c1", size = 208034, upload-time = "2025-07-31T07:00:36.24Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/12/bf/872f23aff6181a2456dc94f955e43c5dff1bcaa2e4c64ed886df0bbbeee6/drissionpage-4.1.1.4.tar.gz", hash = "sha256:4c624485cbc576e1477edb77cd92a3184704f7d6d0fd01928c944a5e66ba4719", size = 207960, upload-time = "2026-05-27T01:49:10.846Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/31/05834b38c12a222012f998d5c2f104f228cf8aaa37747f989c9b29e81d5d/DrissionPage-4.1.1.2-py3-none-any.whl", hash = "sha256:c8b58a8d495550142c10499ce7128655b2baf8f38f46604ba0ce951a148d88e8", size = 257497, upload-time = "2025-07-31T07:00:34.531Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/98/6411ae36a9c103e4cf78e2674643c6c0f6aeb394ea84544c2bcff7f3f27f/drissionpage-4.1.1.4-py3-none-any.whl", hash = "sha256:d1d066e732031c16b00bdc88a2f450e8400da46362597a23c8c6144e4cbb768d", size = 258240, upload-time = "2026-05-27T01:49:08.774Z" },
+]
+
+[[package]]
+name = "drissionrecord"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "openpyxl" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/38/21/94b080a620635599bc74b34291a1de8ef594626e8cb537505cec6999c6df/drissionrecord-2.0.2.tar.gz", hash = "sha256:37e337e60e451876f0f7cb635eda2bee1f527cbde87450d03ec29c8df7568ded", size = 44169, upload-time = "2026-09-04T08:39:30.707Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/c5/3b62be0f3d913d1aa690d47f010b295720254ad767f793409f8df5b44ff7/drissionrecord-2.0.2-py3-none-any.whl", hash = "sha256:d4d88b484326eb6958a92b8b47b41348ff9b5bb19c7eafa972542901c8313cf3", size = 58959, upload-time = "2026-09-04T08:39:29.225Z" },
 ]
 
 [[package]]
@@ -829,7 +830,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -877,6 +878,7 @@ dependencies = [
     { name = "pyfreeproxy" },
     { name = "scrapling", extra = ["all"] },
     { name = "typer" },
+    { name = "xlrd" },
 ]
 
 [package.dev-dependencies]
@@ -905,6 +907,7 @@ requires-dist = [
     { name = "pyfreeproxy", specifier = ">=0.4" },
     { name = "scrapling", extras = ["all"], specifier = ">=0.4.3" },
     { name = "typer", specifier = ">=0.15" },
+    { name = "xlrd", specifier = ">=2.0.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -1097,17 +1100,17 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 dependencies = [
-    { name = "colorama", marker = "python_full_version < '3.11' and sys_platform == 'win32'" },
-    { name = "decorator", marker = "python_full_version < '3.11'" },
-    { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
-    { name = "jedi", marker = "python_full_version < '3.11'" },
-    { name = "matplotlib-inline", marker = "python_full_version < '3.11'" },
-    { name = "pexpect", marker = "python_full_version < '3.11' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "prompt-toolkit", marker = "python_full_version < '3.11'" },
-    { name = "pygments", marker = "python_full_version < '3.11'" },
-    { name = "stack-data", marker = "python_full_version < '3.11'" },
-    { name = "traitlets", marker = "python_full_version < '3.11'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "decorator" },
+    { name = "exceptiongroup" },
+    { name = "jedi" },
+    { name = "matplotlib-inline" },
+    { name = "pexpect", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "prompt-toolkit" },
+    { name = "pygments" },
+    { name = "stack-data" },
+    { name = "traitlets" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/40/18/f8598d287006885e7136451fdea0755af4ebcbfe342836f24deefaed1164/ipython-8.39.0.tar.gz", hash = "sha256:4110ae96012c379b8b6db898a07e186c40a2a1ef5d57a7fa83166047d9da7624", size = 5513971, upload-time = "2026-03-27T10:02:13.94Z" }
 wheels = [
@@ -1122,17 +1125,17 @@ resolution-markers = [
     "python_full_version == '3.11.*'",
 ]
 dependencies = [
-    { name = "colorama", marker = "python_full_version == '3.11.*' and sys_platform == 'win32'" },
-    { name = "decorator", marker = "python_full_version == '3.11.*'" },
-    { name = "ipython-pygments-lexers", marker = "python_full_version == '3.11.*'" },
-    { name = "jedi", marker = "python_full_version == '3.11.*'" },
-    { name = "matplotlib-inline", marker = "python_full_version == '3.11.*'" },
-    { name = "pexpect", marker = "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "prompt-toolkit", marker = "python_full_version == '3.11.*'" },
-    { name = "pygments", marker = "python_full_version == '3.11.*'" },
-    { name = "stack-data", marker = "python_full_version == '3.11.*'" },
-    { name = "traitlets", marker = "python_full_version == '3.11.*'" },
-    { name = "typing-extensions", marker = "python_full_version == '3.11.*'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "decorator" },
+    { name = "ipython-pygments-lexers" },
+    { name = "jedi" },
+    { name = "matplotlib-inline" },
+    { name = "pexpect", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "prompt-toolkit" },
+    { name = "pygments" },
+    { name = "stack-data" },
+    { name = "traitlets" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c5/25/daae0e764047b0a2480c7bbb25d48f4f509b5818636562eeac145d06dfee/ipython-9.10.1.tar.gz", hash = "sha256:e170e9b2a44312484415bdb750492699bf329233b03f2557a9692cce6466ada4", size = 4426663, upload-time = "2026-03-27T09:53:26.244Z" }
 wheels = [
@@ -1147,16 +1150,16 @@ resolution-markers = [
     "python_full_version >= '3.12'",
 ]
 dependencies = [
-    { name = "colorama", marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
-    { name = "decorator", marker = "python_full_version >= '3.12'" },
-    { name = "ipython-pygments-lexers", marker = "python_full_version >= '3.12'" },
-    { name = "jedi", marker = "python_full_version >= '3.12'" },
-    { name = "matplotlib-inline", marker = "python_full_version >= '3.12'" },
-    { name = "pexpect", marker = "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "prompt-toolkit", marker = "python_full_version >= '3.12'" },
-    { name = "pygments", marker = "python_full_version >= '3.12'" },
-    { name = "stack-data", marker = "python_full_version >= '3.12'" },
-    { name = "traitlets", marker = "python_full_version >= '3.12'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "decorator" },
+    { name = "ipython-pygments-lexers" },
+    { name = "jedi" },
+    { name = "matplotlib-inline" },
+    { name = "pexpect", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "prompt-toolkit" },
+    { name = "pygments" },
+    { name = "stack-data" },
+    { name = "traitlets" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3a/73/7114f80a8f9cabdb13c27732dce24af945b2923dcab80723602f7c8bc2d8/ipython-9.12.0.tar.gz", hash = "sha256:01daa83f504b693ba523b5a407246cabde4eb4513285a3c6acaff11a66735ee4", size = 4428879, upload-time = "2026-03-27T09:42:45.312Z" }
 wheels = [
@@ -1168,7 +1171,7 @@ name = "ipython-pygments-lexers"
 version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pygments", marker = "python_full_version >= '3.11'" },
+    { name = "pygments" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ef/4c/5dd1d8af08107f88c7f741ead7a40854b8ac24ddf9ae850afbcf698aa552/ipython_pygments_lexers-1.1.1.tar.gz", hash = "sha256:09c0138009e56b6854f9535736f4171d855c8c08a563a0dcd8022f78355c7e81", size = 8393, upload-time = "2025-01-17T11:24:34.505Z" }
 wheels = [
@@ -3254,4 +3257,13 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/2c/41/aa4bf9664e4cda14c3b39865b12251e8e7d239f4cd0e3cc1b6c2ccde25c1/websocket_client-1.9.0.tar.gz", hash = "sha256:9e813624b6eb619999a97dc7958469217c3176312b3a16a4bd1bc7e08a46ec98", size = 70576, upload-time = "2025-10-07T21:16:36.495Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/34/db/b10e48aa8fff7407e67470363eac595018441cf32d5e1001567a7aeba5d2/websocket_client-1.9.0-py3-none-any.whl", hash = "sha256:af248a825037ef591efbf6ed20cc5faa03d3b47b9e5a2230a529eeee1c1fc3ef", size = 82616, upload-time = "2025-10-07T21:16:34.951Z" },
+]
+
+[[package]]
+name = "xlrd"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/5a/377161c2d3538d1990d7af382c79f3b2372e880b65de21b01b1a2b78691e/xlrd-2.0.2.tar.gz", hash = "sha256:08b5e25de58f21ce71dc7db3b3b8106c1fa776f3024c54e45b45b374e89234c9", size = 100167, upload-time = "2025-06-14T08:46:39.039Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/62/c8d562e7766786ba6587d09c5a8ba9f718ed3fa8af7f4553e8f91c36f302/xlrd-2.0.2-py2.py3-none-any.whl", hash = "sha256:ea762c3d29f4cca48d82df517b6d89fbce4db3107f9d78713e48cd321d5c9aa9", size = 96555, upload-time = "2025-06-14T08:46:37.766Z" },
 ]

@@ -43,3 +43,28 @@ class MajorAdmissionResultItem(BaseModel):
     data_source: str | None = None
     source_updated_at: datetime | None = None
     quality_flags: list[str] = Field(default_factory=list)
+
+
+class ProvincialAdmissionRecordItem(BaseModel):
+    province_id: int
+    year: int = Field(ge=2000, le=2100)
+    batch: str
+    admission_round: int = Field(ge=1)
+    education_level: str | None = None
+    school_id: int | None = None
+    school_code_raw: str
+    school_name_raw: str
+    major_code_raw: str
+    major_name_raw: str
+    major_name: str
+    major_note: str | None = None
+    program_type: str | None = None
+    selection_requirement: str | None = None
+    min_rank: int | None = None
+    min_rank_raw: str | None = None
+    min_score: int | None = None
+    plan_count: int | None = None
+    toudang_plan_count: int | None = None
+    admitted_count: int | None = None
+    source_url: str | None = None
+    data_source: str
