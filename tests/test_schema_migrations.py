@@ -217,4 +217,6 @@ def test_provincial_admission_records_keep_official_rows_and_history_view() -> N
     assert "CREATE OR REPLACE VIEW gaokao_source.provincial_admission_history_v AS" in schema_sql
     assert "BOOL_OR(y.offering_count > 1) AS is_ambiguous" in schema_sql
     assert "(par.admission_round = 2 AND par.education_level = '专科')" in schema_sql
-    assert "y.education_level FROM yearly y" in schema_sql
+    assert "y.education_level, y.subject_category FROM yearly y" in schema_sql
+    assert "ADD COLUMN IF NOT EXISTS subject_category_id INTEGER REFERENCES subject_categories(id)" in schema_sql
+    assert "(par.batch IN ('春季本科批', '春季专科批') AND par.admission_round = 1)" in schema_sql

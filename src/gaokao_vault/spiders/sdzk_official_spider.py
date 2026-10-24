@@ -24,11 +24,16 @@ from gaokao_vault.spiders.sdzk import (
     SDZK_BASE_URL,
     SDZK_DATA_SOURCE,
     SDZK_SEGMENT_LIST_URL,
+    SDZK_SPRING_ADMISSION_LIST_URL,
+    SDZK_SPRING_SEGMENT_LIST_URL,
+    SPRING_BATCH_PREFIX,
     SdzkAdmissionRecord,
     parse_admission_rows,
     parse_admission_title,
     parse_segment_rows,
     parse_segment_title,
+    parse_spring_segment_rows,
+    parse_spring_segment_title,
     read_table_rows,
 )
 
@@ -37,6 +42,9 @@ logger = logging.getLogger(__name__)
 SHANDONG_PROVINCE_CODE = "37"
 # Shandong switched to the 3+3 new gaokao (no 文/理 split) in 2020.
 _YEAR_START = 2020
+# Spring 投档 tables list majors from 2023 on; earlier ones stop at school x 专业类别, and 2020-2021 still
+# used the pre-2022 categories. 2022 has no spring segment table on the site.
+_SPRING_YEAR_START = 2023
 _SEGMENT_SUBJECT_CATEGORY = "综合"
 _TITLE_DATE_SUFFIX = re.compile(r"\s*\d{4}-\d{2}-\d{2}$")
 _TITLE_YEAR = re.compile(r"(\d{4})年")
@@ -48,7 +56,10 @@ def _normalize_school_name(name: str) -> str:
 
 
 class SdzkOfficialSpider(BaseGaokaoSpider):
-    """Import Shandong's official admission (投档情况表) and score segment (一分一段表) tables from sdzk.cn."""
+    """Import Shandong's official admission (投档情况表) and score segment (一分一段表) tables from sdzk.cn.
+
+    Covers the summer gaokao and the spring gaokao (春季高考); spring rows carry their 专业类别.
+    """
 
     name: str = "sdzk_official_spider"
     task_type: str = TaskType.SDZK_OFFICIAL
@@ -67,7 +78,12 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
         return iter_crawl_years(mode=self.mode, full_start_year=_YEAR_START, current_year=datetime.now().year)
 
     async def start_requests(self):
-        for list_url in (SDZK_ADMISSION_LIST_URL, SDZK_SEGMENT_LIST_URL):
+        for list_url in (
+            SDZK_ADMISSION_LIST_URL,
+            SDZK_SEGMENT_LIST_URL,
+            SDZK_SPRING_ADMISSION_LIST_URL,
+            SDZK_SPRING_SEGMENT_LIST_URL,
+        ):
             yield Request(list_url, callback=self.parse_list, meta={"list_url": list_url})
 
     async def parse_list(self, response: Response):
@@ -96,9 +112,13 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
         if not href:
             return None
         url = urljoin(f"{SDZK_BASE_URL}/", href)
+        spring_years = range(max(years.start, _SPRING_YEAR_START), years.stop)
 
         admission = parse_admission_title(title)
-        if admission is not None and admission.year in years:
+        if admission is not None:
+            is_spring = admission.batch.startswith(SPRING_BATCH_PREFIX)
+            if admission.year not in (spring_years if is_spring else years):
+                return None
             return Request(
                 url,
                 callback=self.parse_notice,
@@ -106,7 +126,9 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
                     "kind": "admission",
                     "title": title,
                     "year": admission.year,
+                    "batch": admission.batch,
                     "admission_round": admission.admission_round,
+                    "education_level": admission.education_level,
                 },
             )
 
@@ -114,6 +136,13 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
         if segment_year is not None and segment_year in years:
             return Request(
                 url, callback=self.parse_notice, meta={"kind": "segment", "title": title, "year": segment_year}
+            )
+        spring_segment_year = parse_spring_segment_title(title)
+        if spring_segment_year is not None and spring_segment_year in spring_years:
+            return Request(
+                url,
+                callback=self.parse_notice,
+                meta={"kind": "spring_segment", "title": title, "year": spring_segment_year},
             )
         return None
 
@@ -173,6 +202,7 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
         school_ids = await self._get_school_ids()
         for record in records:
             data = self._admission_item_data(record, meta, province_id, school_ids, self._school_levels)
+            data["subject_category_id"] = await self._resolve_subject_category(record.category or "")
             item = validate_item(ProvincialAdmissionRecordItem, data)
             if item is None:
                 continue
@@ -204,11 +234,12 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
         return {
             "province_id": province_id,
             "year": meta["year"],
-            "batch": ADMISSION_BATCH,
+            "batch": meta.get("batch", ADMISSION_BATCH),
             "admission_round": meta["admission_round"],
-            # The round-1 table has no level column; fall back to the linked school's level. The row's own
-            # level wins when present: round-2 tables list 专科 programmes run by 本科 schools.
-            "education_level": record.education_level or school_level,
+            # Spring batches are one level each. The summer round-1 table has no level column; fall back to
+            # the linked school's level. The row's own level wins when present: round-2 tables list 专科
+            # programmes run by 本科 schools.
+            "education_level": record.education_level or meta.get("education_level") or school_level,
             "school_id": school_id,
             "school_code_raw": record.school_code_raw,
             "school_name_raw": record.school_name_raw,
@@ -232,15 +263,16 @@ class SdzkOfficialSpider(BaseGaokaoSpider):
         if response.request is None:
             return
         meta = response.request.meta
-        records = parse_segment_rows(read_table_rows(response.body))
+        parse_rows = parse_spring_segment_rows if meta["kind"] == "spring_segment" else parse_segment_rows
+        records = parse_rows(read_table_rows(response.body))
         if not records:
             logger.warning("No score segment rows parsed from %s (%s)", response.url, meta.get("title"))
             return
         logger.info("Parsed %d score segment rows from %s", len(records), meta.get("title"))
 
         province_id = await self._get_province_id()
-        subject_category_id = await self._resolve_subject_category(_SEGMENT_SUBJECT_CATEGORY)
         for record in records:
+            subject_category_id = await self._resolve_subject_category(record.category or _SEGMENT_SUBJECT_CATEGORY)
             item = validate_item(
                 ScoreSegmentItem,
                 {

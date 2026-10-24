@@ -108,11 +108,12 @@ async def upsert_provincial_admission_record(conn: asyncpg.Connection, data: dic
             school_code_raw, school_name_raw, major_code_raw, major_name_raw, major_name, major_note,
             program_type, selection_requirement, min_rank, min_rank_raw, min_score,
             plan_count, toudang_plan_count, admitted_count, source_url, data_source,
-            content_hash, crawl_task_id
+            content_hash, crawl_task_id, subject_category_id
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
         ON CONFLICT (province_id, year, batch, admission_round, school_code_raw, major_code_raw) DO UPDATE SET
             education_level=EXCLUDED.education_level,
+            subject_category_id=EXCLUDED.subject_category_id,
             school_id=EXCLUDED.school_id,
             school_name_raw=EXCLUDED.school_name_raw,
             major_name_raw=EXCLUDED.major_name_raw,
@@ -156,5 +157,6 @@ async def upsert_provincial_admission_record(conn: asyncpg.Connection, data: dic
         data["data_source"],
         data.get("content_hash"),
         data.get("crawl_task_id"),
+        data.get("subject_category_id"),
     )
     return row["id"]

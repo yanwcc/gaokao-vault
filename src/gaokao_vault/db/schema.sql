@@ -708,6 +708,8 @@ CREATE TABLE IF NOT EXISTS provincial_admission_records (
     batch               VARCHAR(50) NOT NULL,
     admission_round     SMALLINT NOT NULL,
     education_level     VARCHAR(20),
+    -- 专业类别 of spring gaokao rows (ranks are per category); NULL for summer rows.
+    subject_category_id INTEGER REFERENCES subject_categories(id),
     school_id           BIGINT REFERENCES schools(id),
     school_code_raw     VARCHAR(20) NOT NULL,
     school_name_raw     VARCHAR(100) NOT NULL,
@@ -731,6 +733,9 @@ CREATE TABLE IF NOT EXISTS provincial_admission_records (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (province_id, year, batch, admission_round, school_code_raw, major_code_raw)
 );
+
+ALTER TABLE provincial_admission_records
+    ADD COLUMN IF NOT EXISTS subject_category_id INTEGER REFERENCES subject_categories(id);
 
 CREATE INDEX IF NOT EXISTS idx_provincial_admission_province_year
     ON provincial_admission_records(province_id, year, admission_round);
@@ -1031,9 +1036,11 @@ SELECT
     p.code AS province_code,
     ss.year AS admission_year,
     ss.score,
-    ss.cumulative_count AS rank
+    ss.cumulative_count AS rank,
+    sc.name AS subject_category
 FROM score_segments ss
-JOIN provinces p ON p.id = ss.province_id;
+JOIN provinces p ON p.id = ss.province_id
+LEFT JOIN subject_categories sc ON sc.id = ss.subject_category_id;
 
 -- First-chance admission history per (school code, major name, note, level), used to infer next
 -- year's offerings until the official plan is published. 本科 rows come from round 1 and 专科 rows from
@@ -1041,13 +1048,15 @@ JOIN provinces p ON p.id = ss.province_id;
 -- 本科 rows are leftover places and are excluded). Rows without a level are treated as 本科. School codes
 -- are stable across renames; when a school lists the same major name + note under several codes in one
 -- year (separate campuses or fee levels the table does not distinguish), every rank of that year is
--- kept and the row is flagged.
+-- kept and the row is flagged. Spring batches (春季本科批 / 春季专科批) are one level each and are first
+-- filled in round 1; their ranks are per 专业类别, so rows are also split by subject_category.
 CREATE OR REPLACE VIEW gaokao_source.provincial_admission_history_v AS
 WITH yearly AS (
     SELECT
         par.province_id,
         par.batch,
         COALESCE(par.education_level, '本科') AS education_level,
+        sc.name AS subject_category,
         par.school_code_raw,
         par.major_name,
         par.major_note,
@@ -1060,9 +1069,12 @@ WITH yearly AS (
         MAX(par.selection_requirement) AS selection_requirement,
         COUNT(*) AS offering_count
     FROM provincial_admission_records par
-    WHERE (par.admission_round = 1 AND COALESCE(par.education_level, '本科') = '本科')
-       OR (par.admission_round = 2 AND par.education_level = '专科')
-    GROUP BY par.province_id, par.batch, COALESCE(par.education_level, '本科'), par.school_code_raw,
+    LEFT JOIN subject_categories sc ON sc.id = par.subject_category_id
+    WHERE (par.batch IN ('春季本科批', '春季专科批') AND par.admission_round = 1)
+       OR (par.batch NOT IN ('春季本科批', '春季专科批') AND (
+               (par.admission_round = 1 AND COALESCE(par.education_level, '本科') = '本科')
+            OR (par.admission_round = 2 AND par.education_level = '专科')))
+    GROUP BY par.province_id, par.batch, COALESCE(par.education_level, '本科'), sc.name, par.school_code_raw,
              par.major_name, par.major_note, par.year
 )
 SELECT
@@ -1081,7 +1093,9 @@ SELECT
     ARRAY_AGG(y.year ORDER BY y.year DESC) AS years_present,
     JSONB_OBJECT_AGG(y.year::TEXT, TO_JSONB(y.min_ranks)) AS min_ranks_by_year,
     BOOL_OR(y.offering_count > 1) AS is_ambiguous,
-    y.education_level
+    y.education_level,
+    y.subject_category
 FROM yearly y
 JOIN provinces p ON p.id = y.province_id
-GROUP BY y.province_id, p.name, y.batch, y.education_level, y.school_code_raw, y.major_name, y.major_note;
+GROUP BY y.province_id, p.name, y.batch, y.education_level, y.subject_category, y.school_code_raw, y.major_name,
+         y.major_note;

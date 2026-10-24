@@ -6,7 +6,11 @@ from unittest.mock import MagicMock, patch
 from scrapling.parser import Adaptor
 
 from gaokao_vault.config import DatabaseConfig
-from gaokao_vault.spiders.sdzk import SDZK_ADMISSION_LIST_URL, SdzkAdmissionRecord
+from gaokao_vault.spiders.sdzk import (
+    SDZK_ADMISSION_LIST_URL,
+    SDZK_SPRING_ADMISSION_LIST_URL,
+    SdzkAdmissionRecord,
+)
 from gaokao_vault.spiders.sdzk_official_spider import SdzkOfficialSpider
 
 
@@ -67,6 +71,42 @@ def test_parse_list_requests_admission_notices_in_window_and_next_page():
     assert form["__EVENTTARGET"] == "ctl00$Pager$ctl02$ctl00"
     assert form["__VIEWSTATE"] == "vs-token"
     assert form["__EVENTVALIDATION"] == "ev-token"
+
+
+_SPRING_LIST_HTML = """
+<html><body><ul>
+  <li><a href="NewsInfo.aspx?NewsID=7321">山东省2026年春季高考专科批第1次志愿投档情况表<span>2026-07-28</span></a></li>
+  <li><a href="NewsInfo.aspx?NewsID=7325">山东省2026年春季高考专科批第2次志愿院校专业计划<span>2026-07-30</span></a></li>
+  <li><a href="NewsInfo.aspx?NewsID=5845">山东省2022年春季高考本科批第一次志愿投档情况表<span>2022-07-20</span></a></li>
+  <li><a href="NewsInfo.aspx?NewsID=7259">2026年春季高考成绩一分一段表<span>2026-06-25</span></a></li>
+  <li><a href="NewsInfo.aspx?NewsID=5459">2021年春季高考一分一段表<span>2021-06-25</span></a></li>
+</ul></body></html>
+"""
+
+
+def test_parse_list_requests_spring_notices_from_2023_with_batch_and_level():
+    spider = _make_spider()
+    meta = {"list_url": SDZK_SPRING_ADMISSION_LIST_URL}
+    response = _make_response(_SPRING_LIST_HTML, SDZK_SPRING_ADMISSION_LIST_URL, meta)
+
+    with patch.object(spider, "_crawl_years", return_value=range(2020, 2027)):
+        requests = asyncio.run(_collect(spider.parse_list(response)))
+
+    notices = [r for r in requests if r.callback.__name__ == "parse_notice"]
+    assert [(r.meta["kind"], r.meta["year"]) for r in notices] == [("admission", 2026), ("spring_segment", 2026)]
+    admission = notices[0].meta
+    assert (admission["batch"], admission["admission_round"], admission["education_level"]) == ("春季专科批", 1, "专科")
+
+
+def test_parse_notice_sends_spring_segments_to_segment_parser():
+    spider = _make_spider()
+    html = '<html><body><a href="/Floadup/file/20260625/639.xls">附件</a></body></html>'
+    meta = {"kind": "spring_segment", "title": "2026年春季高考成绩一分一段表", "year": 2026}
+    response = _make_response(html, "https://www.sdzk.cn/NewsInfo.aspx?NewsID=7259", meta)
+
+    requests = asyncio.run(_collect(spider.parse_notice(response)))
+
+    assert [r.callback.__name__ for r in requests] == ["parse_segment_file"]
 
 
 def test_parse_list_stops_paging_once_page_is_older_than_window():
@@ -170,3 +210,18 @@ def test_admission_item_data_leaves_level_empty_for_unlinked_schools():
 
     assert data["school_id"] is None
     assert data["education_level"] is None
+
+
+def test_admission_item_data_takes_spring_batch_and_level_from_the_title():
+    meta = {
+        "year": 2026,
+        "batch": "春季本科批",
+        "admission_round": 1,
+        "education_level": "本科",
+        "notice_url": "https://www.sdzk.cn/NewsInfo.aspx?NewsID=7303",
+    }
+
+    data = SdzkOfficialSpider._admission_item_data(_record(None), meta, 15, {"测试大学": 7}, {7: "专科"})
+
+    assert data["batch"] == "春季本科批"
+    assert data["education_level"] == "本科"

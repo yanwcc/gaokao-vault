@@ -6,6 +6,8 @@ from gaokao_vault.spiders.sdzk import (
     parse_admission_title,
     parse_segment_rows,
     parse_segment_title,
+    parse_spring_segment_rows,
+    parse_spring_segment_title,
     read_table_rows,
     split_major_name,
 )
@@ -45,6 +47,27 @@ _SEGMENT_XLS = [
     ["150", "54", "708817", "13", "343381"],
 ]
 
+_SPRING_ADMISSION_2026 = [
+    ["", "山东省2026年春季高考本科批第1次志愿投档情况表", "", "", ""],
+    ["", "专业类别", "专业代号及名称", "院校代号及名称", "最低位次"],
+    ["", "现代农艺", "20食品工程技术", "C062日照职业技术大学", "65"],
+    ["", "烹饪", "21食品工程技术", "C062日照职业技术大学", "88"],
+]
+
+_SPRING_ADMISSION_2024 = [
+    ["", "山东省2024年春季高考专科批第1次志愿投档情况表", "", "", "", ""],
+    ["", "专业类别", "专业代号及名称", "院校代号及名称", "投档计划数", "最低位次"],
+    ["", "现代农艺", "B2食品检验检测技术", "C062日照职业技术学院", "20", "194"],
+]
+
+_SPRING_SEGMENT = [
+    ["2026年春季高考成绩一分一段表", "", "", "", ""],
+    ["专业类别代码", "专业类别名称", "分数段", "本段人数", "累计人数"],
+    ["01", "现代农艺", "635", "1", "1"],
+    ["01", "现代农艺", "624", "1", "2"],
+    ["30", "艺术设计", "0", "42", "4979"],
+]
+
 # 2020's segment table is an Excel HTML export with merged header cells and 全体 last.
 _SEGMENT_HTML_2020 = """
 <html><body><table>
@@ -62,6 +85,24 @@ def test_parse_admission_title_handles_digits_and_chinese_numerals():
     assert parse_admission_title("山东省2026年普通类常规批第1次志愿投档情况表") == SdzkAdmissionTitle(2026, 1)
     assert parse_admission_title("山东省2022年普通类常规批第三次志愿投档情况表") == SdzkAdmissionTitle(2022, 3)
     assert parse_admission_title("山东省2026年体育类常规批第3次志愿投档情况表") is None
+
+
+def test_parse_admission_title_reads_spring_batches_with_their_level():
+    assert parse_admission_title("山东省2026年春季高考本科批第1次志愿投档情况表") == SdzkAdmissionTitle(
+        2026, 1, "春季本科批", "本科"
+    )
+    assert parse_admission_title("山东省2022年春季高考专科批第二次志愿投档情况表") == SdzkAdmissionTitle(
+        2022, 2, "春季专科批", "专科"
+    )
+    assert parse_admission_title("山东省2026年春季高考专科批第2次志愿院校专业计划") is None
+    assert parse_admission_title("山东省2020年春季高考本科批第1次志愿院校投档情况统计表") is None
+
+
+def test_parse_spring_segment_title():
+    assert parse_spring_segment_title("2026年春季高考成绩一分一段表") == 2026
+    assert parse_spring_segment_title("2021年春季高考一分一段表") == 2021
+    assert parse_spring_segment_title("2026年夏季高考文化成绩一分一段表") is None
+    assert parse_spring_segment_title("春季高考本科首次志愿录取后一分一段表") is None
 
 
 def test_parse_segment_title_only_matches_summer_culture_table():
@@ -126,3 +167,35 @@ def test_read_table_rows_expands_html_export_and_finds_total_last():
     records = parse_segment_rows(read_table_rows(_SEGMENT_HTML_2020))
 
     assert [(r.score, r.segment_count, r.cumulative_count) for r in records] == [(696, 9, 56), (695, 5, 61)]
+
+
+def test_parse_admission_rows_reads_spring_category_without_mistaking_it_for_the_major():
+    records = parse_admission_rows(_SPRING_ADMISSION_2026)
+
+    assert [(r.category, r.major_code_raw, r.major_name, r.min_rank) for r in records] == [
+        ("现代农艺", "20", "食品工程技术", 65),
+        ("烹饪", "21", "食品工程技术", 88),
+    ]
+    assert records[0].school_code_raw == "C062"
+    assert records[0].education_level is None
+
+
+def test_parse_admission_rows_reads_spring_plan_count():
+    records = parse_admission_rows(_SPRING_ADMISSION_2024)
+
+    assert len(records) == 1
+    assert (records[0].category, records[0].toudang_plan_count, records[0].min_rank) == ("现代农艺", 20, 194)
+
+
+def test_parse_admission_rows_leaves_summer_category_empty():
+    assert {record.category for record in parse_admission_rows(_ADMISSION_2026)} == {None}
+
+
+def test_parse_spring_segment_rows_keeps_category_per_row():
+    records = parse_spring_segment_rows(_SPRING_SEGMENT)
+
+    assert [(r.category, r.score, r.segment_count, r.cumulative_count) for r in records] == [
+        ("现代农艺", 635, 1, 1),
+        ("现代农艺", 624, 1, 2),
+        ("艺术设计", 0, 42, 4979),
+    ]

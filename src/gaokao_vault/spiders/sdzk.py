@@ -1,7 +1,8 @@
 """Parsers for Shandong Education Admission and Examination Authority (sdzk.cn) attachments.
 
 The authority publishes admission (投档情况表) and score segment (一分一段表) tables as
-Excel attachments. Layouts drift between years (extra blank first column, two-row headers,
+Excel attachments, for both the summer gaokao and the spring gaokao (春季高考, ranked per
+专业类别). Layouts drift between years (extra blank first column, two-row headers,
 optional 层次 / 选考科目要求 / 最低分 columns), and the 2020 segment table is an Excel HTML
 export saved as ``.xls``, so columns are located by header keywords rather than position.
 """
@@ -16,10 +17,14 @@ SDZK_BASE_URL = "https://www.sdzk.cn"
 SDZK_DATA_SOURCE = "sdzk.cn"
 SDZK_ADMISSION_LIST_URL = f"{SDZK_BASE_URL}/NewsList.aspx?BCID=1198&CID=47"
 SDZK_SEGMENT_LIST_URL = f"{SDZK_BASE_URL}/NewsList.aspx?BCID=1198&CID=49"
+SDZK_SPRING_ADMISSION_LIST_URL = f"{SDZK_BASE_URL}/NewsList.aspx?BCID=1199&CID=1201"
+SDZK_SPRING_SEGMENT_LIST_URL = f"{SDZK_BASE_URL}/NewsList.aspx?BCID=1199&CID=1203"
 
 _ROUND_NUMERALS = {"1": 1, "2": 2, "3": 3, "一": 1, "二": 2, "三": 3}
 _ADMISSION_TITLE_PATTERN = re.compile(r"(\d{4})年普通类常规批第([123一二三])次志愿投档情况表")
+_SPRING_ADMISSION_TITLE_PATTERN = re.compile(r"(\d{4})年春季高考(本科|专科)批第([123一二三])次志愿投档情况表")
 _SEGMENT_TITLE_PATTERN = re.compile(r"^(\d{4})年夏季高考文化(?:总)?成绩一分一段表$")
+_SPRING_SEGMENT_TITLE_PATTERN = re.compile(r"^(\d{4})年春季高考(?:成绩)?一分一段表$")
 _SCHOOL_CELL_PATTERN = re.compile(r"^([A-Z]\d{3})\s*(.+)$")
 _MAJOR_CELL_PATTERN = re.compile(r"^([0-9A-Z]{2})\s*(.+)$")
 _PAREN_GROUP_PATTERN = re.compile(r"\(([^()]*)\)")
@@ -29,12 +34,15 @@ _FULLWIDTH_RIGHT_PAREN = chr(0xFF09)
 _NOTE_SEPARATOR = chr(0xFF1B)
 
 ADMISSION_BATCH = "常规批"
+SPRING_BATCH_PREFIX = "春季"
 
 
 @dataclass(frozen=True)
 class SdzkAdmissionTitle:
     year: int
     admission_round: int
+    batch: str = ADMISSION_BATCH
+    education_level: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +61,8 @@ class SdzkAdmissionRecord:
     plan_count: int | None
     toudang_plan_count: int | None
     admitted_count: int | None
+    # Spring tables rank each 专业类别 separately.
+    category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,17 +70,33 @@ class SdzkSegmentRecord:
     score: int
     segment_count: int
     cumulative_count: int
+    category: str | None = None
 
 
 def parse_admission_title(title: str) -> SdzkAdmissionTitle | None:
+    """Parse a summer 常规批 or spring 本科批/专科批 admission title; spring batches carry their level."""
     match = _ADMISSION_TITLE_PATTERN.search(title)
-    if match is None:
-        return None
-    return SdzkAdmissionTitle(year=int(match.group(1)), admission_round=_ROUND_NUMERALS[match.group(2)])
+    if match is not None:
+        return SdzkAdmissionTitle(year=int(match.group(1)), admission_round=_ROUND_NUMERALS[match.group(2)])
+    match = _SPRING_ADMISSION_TITLE_PATTERN.search(title)
+    if match is not None:
+        level = match.group(2)
+        return SdzkAdmissionTitle(
+            year=int(match.group(1)),
+            admission_round=_ROUND_NUMERALS[match.group(3)],
+            batch=f"{SPRING_BATCH_PREFIX}{level}批",
+            education_level=level,
+        )
+    return None
 
 
 def parse_segment_title(title: str) -> int | None:
     match = _SEGMENT_TITLE_PATTERN.match(title.strip())
+    return int(match.group(1)) if match else None
+
+
+def parse_spring_segment_title(title: str) -> int | None:
+    match = _SPRING_SEGMENT_TITLE_PATTERN.match(title.strip())
     return int(match.group(1)) if match else None
 
 
@@ -128,6 +154,37 @@ def parse_segment_rows(rows: list[list[str]]) -> list[SdzkSegmentRecord]:
     return records
 
 
+def parse_spring_segment_rows(rows: list[list[str]]) -> list[SdzkSegmentRecord]:
+    """Extract a spring gaokao segment table: one row per (专业类别, score), cumulative within the category."""
+    header_row = next((i for i, row in enumerate(rows) if any("分数段" in cell for cell in row)), None)
+    if header_row is None:
+        return []
+
+    header = rows[header_row]
+    columns = [
+        next((i for i, cell in enumerate(header) if keyword in cell), None)
+        for keyword in ("类别名称", "分数段", "本段", "累计")
+    ]
+    category_col, score_col, segment_col, cumulative_col = columns
+    if category_col is None or score_col is None or segment_col is None or cumulative_col is None:
+        return []
+
+    records = []
+    for row in rows[header_row + 1 :]:
+        category = _cell(row, category_col)
+        score = _parse_int(_cell(row, score_col))
+        segment_count = _parse_int(_cell(row, segment_col))
+        cumulative_count = _parse_int(_cell(row, cumulative_col))
+        if not category or score is None or segment_count is None or cumulative_count is None:
+            continue
+        records.append(
+            SdzkSegmentRecord(
+                score=score, segment_count=segment_count, cumulative_count=cumulative_count, category=category
+            )
+        )
+    return records
+
+
 def split_major_name(name_raw: str) -> tuple[str, str | None]:
     """Split "土木工程(高校专项计划)(要求...)" into the major name and its parenthesised notes.
 
@@ -162,6 +219,7 @@ def _admission_columns(rows: list[list[str]], header_start: int) -> dict[str, in
 
 def _admission_header_key(header: str) -> str | None:
     rules = (
+        ("专业类别", "category"),
         ("院校", "school"),
         ("专业", "major"),
         ("层次", "level"),
@@ -203,6 +261,7 @@ def _admission_record(row: list[str], columns: dict[str, int]) -> SdzkAdmissionR
         plan_count=_parse_int(_optional_cell(row, columns.get("plan"))),
         toudang_plan_count=_parse_int(_optional_cell(row, columns.get("toudang_plan"))),
         admitted_count=_parse_int(_optional_cell(row, columns.get("admitted"))),
+        category=_optional_cell(row, columns.get("category")),
     )
 
 

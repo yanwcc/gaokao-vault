@@ -51,6 +51,7 @@ class ProvincialAdmissionRecordItem(BaseModel):
     batch: str
     admission_round: int = Field(ge=1)
     education_level: str | None = None
+    subject_category_id: int | None = None
     school_id: int | None = None
     school_code_raw: str
     school_name_raw: str
