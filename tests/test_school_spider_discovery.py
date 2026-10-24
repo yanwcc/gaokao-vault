@@ -9,6 +9,7 @@ from gaokao_vault.config import DatabaseConfig
 from gaokao_vault.spiders.school_spider import (
     LIST_PAGE_MAX_RETRIES,
     LIST_PAGE_PRIORITY,
+    NO_DETAIL_MARKER,
     PAGINATION_PRIORITY,
     SchoolSpider,
     _CaptureSchoolIdsAction,
@@ -171,6 +172,22 @@ def test_parse_school_list_retries_page_when_some_cards_were_not_captured():
         {"list_retries": LIST_PAGE_MAX_RETRIES},
     )
     requests = asyncio.run(_collect(spider.parse_school_list(exhausted)))
+    assert [request.url for request in requests if request.url == _LIST_URL] == []
+
+
+def test_parse_school_list_does_not_retry_cards_without_detail_page():
+    spider = _make_school_spider()
+    response = _make_response(
+        _list_html([("1", "北京大学", "北京"), (NO_DETAIL_MARKER, "中国人民大学(苏州校区)", "江苏")]),
+        _LIST_URL,
+        {"list_retries": 0},
+    )
+
+    with patch.object(spider, "_load_province_map", new=AsyncMock(return_value={"北京": 1})):
+        requests = asyncio.run(_collect(spider.parse_school_list(response)))
+
+    detail_requests = [request for request in requests if "schoolInfoMain--schId-" in request.url]
+    assert [request.meta["sch_id"] for request in detail_requests] == [1]
     assert [request.url for request in requests if request.url == _LIST_URL] == []
 
 

@@ -16,7 +16,9 @@ from gaokao_vault.spiders.base import BaseGaokaoSpider
 logger = logging.getLogger(__name__)
 
 SEARCH_ENTRY_URL = f"{BASE_URL}/sch/search--ss-on,option-qg,searchType-1,start-0.dhtml"
-_SCH_ID_PATTERN = re.compile(r"schoolInfo(?:Main)?--schId-(\d+)")
+_SCH_ID_PATTERN = re.compile(r"schoolInfo(?:Main)?--schId-(\d*)")
+# Some cards (e.g. 中国人民大学(苏州校区)) link to "schoolInfo--schId-.dhtml": the site has no detail page.
+NO_DETAIL_MARKER = "none"
 _LIST_START_PATTERN = re.compile(r"start-(\d+)\.dhtml")
 LIST_PAGE_SIZE = 20
 LIST_PAGE_MAX_RETRIES = 2
@@ -89,7 +91,7 @@ class _CaptureSchoolIdsAction:
         if match:
             await name_locator.evaluate(
                 "(el, schId) => el.closest('.sch-item').setAttribute('data-sch-id', schId)",
-                match.group(1),
+                match.group(1) or NO_DETAIL_MARKER,
             )
 
 
@@ -248,6 +250,18 @@ class SchoolSpider(BaseGaokaoSpider):
             )
             return None
 
+    @staticmethod
+    def _card_sch_id(school_card, list_url: str) -> tuple[bool, int | None]:
+        """Return (resolved, schId) for a list card; cards without a detail page resolve to None."""
+        raw_sch_id = school_card.attrib.get("data-sch-id", "").strip()
+        if raw_sch_id == NO_DETAIL_MARKER:
+            card_name = "".join(school_card.css(".js-yxk-yxmc ::text").getall()).strip()
+            logger.info("School list card has no detail page on the site: %s (%s)", card_name, list_url)
+            return True, None
+        if not raw_sch_id.isdigit():
+            return False, None
+        return True, int(raw_sch_id)
+
     async def parse_school_list(self, response: Response):
         if response.request is None:
             return
@@ -260,12 +274,9 @@ class SchoolSpider(BaseGaokaoSpider):
         known_sch_ids = await self._load_known_sch_ids()
         resolved = 0
         for school_card in school_cards:
-            raw_sch_id = school_card.attrib.get("data-sch-id", "").strip()
-            if not raw_sch_id.isdigit():
-                continue
-            sch_id = int(raw_sch_id)
-            resolved += 1
-            if sch_id in known_sch_ids:
+            card_resolved, sch_id = self._card_sch_id(school_card, response.url)
+            resolved += card_resolved
+            if sch_id is None or sch_id in known_sch_ids:
                 continue
 
             candidate_province_id = await self._resolve_card_province_id(school_card, sch_id)
